@@ -1,6 +1,6 @@
+use num_traits::ToPrimitive;
 use std::default::Default;
 use std::iter::{FromIterator, IntoIterator};
-use num_traits::ToPrimitive;
 
 use {Commute, Partial};
 
@@ -8,7 +8,10 @@ use {Commute, Partial};
 ///
 /// (This has time complexity `O(nlogn)` and space complexity `O(n)`.)
 pub fn median<I>(it: I) -> Option<f64>
-        where I: Iterator, <I as Iterator>::Item: PartialOrd + ToPrimitive {
+where
+    I: Iterator,
+    <I as Iterator>::Item: PartialOrd + ToPrimitive,
+{
     it.collect::<Unsorted<_>>().median()
 }
 
@@ -16,7 +19,10 @@ pub fn median<I>(it: I) -> Option<f64>
 ///
 /// (This has time complexity `O(nlogn)` and space complexity `O(n)`.)
 pub fn quartiles<I>(it: I) -> Option<(f64, f64, f64)>
-        where I: Iterator, <I as Iterator>::Item: PartialOrd + ToPrimitive {
+where
+    I: Iterator,
+    <I as Iterator>::Item: PartialOrd + ToPrimitive,
+{
     it.collect::<Unsorted<_>>().quartiles()
 }
 
@@ -26,34 +32,42 @@ pub fn quartiles<I>(it: I) -> Option<(f64, f64, f64)>
 ///
 /// If the data does not have a mode, then `None` is returned.
 pub fn mode<T, I>(it: I) -> Option<T>
-       where T: PartialOrd + Clone, I: Iterator<Item=T> {
+where
+    T: PartialOrd + Clone,
+    I: Iterator<Item = T>,
+{
     it.collect::<Unsorted<T>>().mode()
 }
 
 /// Compute the modes on a stream of data.
-/// 
+///
 /// If there is a single mode, then only that value is returned in the `Vec`
 /// however, if there multiple values tied for occuring the most amount of times
 /// those values are returned.
-/// 
+///
 /// ## Example
 /// ```
 /// use stats;
-/// 
+///
 /// let vals = vec![1, 1, 2, 2, 3];
-/// 
+///
 /// assert_eq!(stats::modes(vals.into_iter()), vec![1, 2]);
 /// ```
 /// This has time complexity `O(n)`
 ///
 /// If the data does not have a mode, then an empty `Vec` is returned.
 pub fn modes<T, I>(it: I) -> Vec<T>
-       where T: PartialOrd + Clone, I: Iterator<Item=T> {
+where
+    T: PartialOrd + Clone,
+    I: Iterator<Item = T>,
+{
     it.collect::<Unsorted<T>>().modes()
 }
 
 fn median_on_sorted<T>(data: &[T]) -> Option<f64>
-        where T: PartialOrd + ToPrimitive {
+where
+    T: PartialOrd + ToPrimitive,
+{
     Some(match data.len() {
         0 => return None,
         1 => data[0].to_f64().unwrap(),
@@ -62,19 +76,21 @@ fn median_on_sorted<T>(data: &[T]) -> Option<f64>
             let v2 = data[len / 2].to_f64().unwrap();
             (v1 + v2) / 2.0
         }
-        len => {
-            data[len / 2].to_f64().unwrap()
-        }
+        len => data[len / 2].to_f64().unwrap(),
     })
 }
 
 fn quartiles_on_sorted<T>(data: &[T]) -> Option<(f64, f64, f64)>
-        where T: PartialOrd + ToPrimitive {
+where
+    T: PartialOrd + ToPrimitive,
+{
     Some(match data.len() {
         0..=2 => return None,
-        3 => (data[0].to_f64().unwrap(),
-              data[1].to_f64().unwrap(),
-              data[2].to_f64().unwrap()),
+        3 => (
+            data[0].to_f64().unwrap(),
+            data[1].to_f64().unwrap(),
+            data[2].to_f64().unwrap(),
+        ),
         len => {
             let r = len % 4;
             let k = (len - r) / 4;
@@ -91,10 +107,10 @@ fn quartiles_on_sorted<T>(data: &[T]) -> Option<(f64, f64, f64)>
                         data[2 * k - 1].to_f64().unwrap(),
                         data[2 * k].to_f64().unwrap(),
                         data[3 * k - 1].to_f64().unwrap(),
-                        data[3 * k].to_f64().unwrap()
+                        data[3 * k].to_f64().unwrap(),
                     );
                     ((q1_l + q1_r) / 2., (q2_l + q2_r) / 2., (q3_l + q3_r) / 2.)
-                },
+                }
                 // Let data = {x_i}_{i=0..4k+1} where k is positive integer.
                 // Median q2 = x_{2k}.
                 // If we divide data other than q2 into two parts {x_i < q2}
@@ -106,10 +122,10 @@ fn quartiles_on_sorted<T>(data: &[T]) -> Option<(f64, f64, f64)>
                         data[k].to_f64().unwrap(),
                         data[2 * k].to_f64().unwrap(),
                         data[3 * k].to_f64().unwrap(),
-                        data[3 * k + 1].to_f64().unwrap()
+                        data[3 * k + 1].to_f64().unwrap(),
                     );
                     ((q1_l + q1_r) / 2., q2, (q3_l + q3_r) / 2.)
-                },
+                }
                 // Let data = {x_i}_{i=0..4k+2} where k is positive integer.
                 // Median q2 = (x_{(2k+1)-1} + x_{2k+1}) / 2.
                 // If we divide data into two parts {x_i < q2} as L and
@@ -120,10 +136,10 @@ fn quartiles_on_sorted<T>(data: &[T]) -> Option<(f64, f64, f64)>
                         data[k].to_f64().unwrap(),
                         data[2 * k].to_f64().unwrap(),
                         data[2 * k + 1].to_f64().unwrap(),
-                        data[3 * k + 1].to_f64().unwrap()
+                        data[3 * k + 1].to_f64().unwrap(),
                     );
                     (q1, (q2_l + q2_r) / 2., q3)
-                },
+                }
                 // Let data = {x_i}_{i=0..4k+3} where k is positive integer.
                 // Median q2 = x_{2k+1}.
                 // If we divide data other than q2 into two parts {x_i < q2}
@@ -133,17 +149,20 @@ fn quartiles_on_sorted<T>(data: &[T]) -> Option<(f64, f64, f64)>
                     let (q1, q2, q3) = (
                         data[k].to_f64().unwrap(),
                         data[2 * k + 1].to_f64().unwrap(),
-                        data[3 * k + 2].to_f64().unwrap()
+                        data[3 * k + 2].to_f64().unwrap(),
                     );
                     (q1, q2, q3)
-                },
+                }
             }
-        },
+        }
     })
 }
 
 fn mode_on_sorted<T, I>(it: I) -> Option<T>
-        where T: PartialOrd, I: Iterator<Item=T> {
+where
+    T: PartialOrd,
+    I: Iterator<Item = T>,
+{
     // This approach to computing the mode works very nicely when the
     // number of samples is large and is close to its cardinality.
     // In other cases, a hashmap would be much better.
@@ -176,8 +195,10 @@ fn mode_on_sorted<T, I>(it: I) -> Option<T>
 }
 
 fn modes_on_sorted<T, I>(it: I) -> Vec<T>
-        where T: PartialOrd, I: Iterator<Item=T> {
-
+where
+    T: PartialOrd,
+    I: Iterator<Item = T>,
+{
     let mut highest_mode = 1_u32;
     let mut modes: Vec<u32> = vec![];
     let mut values = vec![];
@@ -186,7 +207,7 @@ fn modes_on_sorted<T, I>(it: I) -> Vec<T>
         if values.len() == 0 {
             values.push(x);
             modes.push(1);
-            continue
+            continue;
         }
         if x == values[count] {
             modes[count] += 1;
@@ -199,7 +220,8 @@ fn modes_on_sorted<T, I>(it: I) -> Vec<T>
             count += 1;
         }
     }
-    modes.into_iter()
+    modes
+        .into_iter()
         .zip(values)
         .filter(|(cnt, _val)| *cnt == highest_mode && highest_mode > 1)
         .map(|(_, val)| val)
@@ -306,7 +328,7 @@ impl<T: PartialOrd> Default for Unsorted<T> {
 }
 
 impl<T: PartialOrd> FromIterator<T> for Unsorted<T> {
-    fn from_iter<I: IntoIterator<Item=T>>(it: I) -> Unsorted<T> {
+    fn from_iter<I: IntoIterator<Item = T>>(it: I) -> Unsorted<T> {
         let mut v = Unsorted::new();
         v.extend(it);
         v
@@ -314,7 +336,7 @@ impl<T: PartialOrd> FromIterator<T> for Unsorted<T> {
 }
 
 impl<T: PartialOrd> Extend<T> for Unsorted<T> {
-    fn extend<I: IntoIterator<Item=T>>(&mut self, it: I) {
+    fn extend<I: IntoIterator<Item = T>>(&mut self, it: I) {
         self.dirtied();
         self.data.extend(it.into_iter().map(Partial))
     }
@@ -322,7 +344,7 @@ impl<T: PartialOrd> Extend<T> for Unsorted<T> {
 
 #[cfg(test)]
 mod test {
-    use super::{median, quartiles, mode, modes};
+    use super::{median, mode, modes, quartiles};
 
     #[test]
     fn median_stream() {
@@ -370,29 +392,77 @@ mod test {
     fn modes_floats() {
         assert_eq!(modes(vec![3_f64, 5.0, 7.0, 9.0].into_iter()), vec![]);
         assert_eq!(modes(vec![3_f64, 3.0, 3.0, 3.0].into_iter()), vec![3.0]);
-        assert_eq!(modes(vec![3_f64, 3.0, 4.0, 4.0].into_iter()), vec![3.0, 4.0]);
-        assert_eq!(modes(vec![1_f64, 1.0, 2.0, 3.0, 3.0].into_iter()), vec![1.0, 3.0]);
+        assert_eq!(
+            modes(vec![3_f64, 3.0, 4.0, 4.0].into_iter()),
+            vec![3.0, 4.0]
+        );
+        assert_eq!(
+            modes(vec![1_f64, 1.0, 2.0, 3.0, 3.0].into_iter()),
+            vec![1.0, 3.0]
+        );
     }
 
     #[test]
     fn quartiles_stream() {
-        assert_eq!(quartiles(vec![3usize, 5, 7].into_iter()), Some((3., 5., 7.)));
-        assert_eq!(quartiles(vec![3usize, 5, 7, 9].into_iter()), Some((4., 6., 8.)));
-        assert_eq!(quartiles(vec![1usize, 2, 7, 11].into_iter()), Some((1.5, 4.5, 9.)));
-        assert_eq!(quartiles(vec![3usize, 5, 7, 9, 12].into_iter()), Some((4., 7., 10.5)));
-        assert_eq!(quartiles(vec![2usize, 2, 3, 8, 10].into_iter()), Some((2., 3., 9.)));
-        assert_eq!(quartiles(vec![3usize, 5, 7, 9, 12, 20].into_iter()), Some((5., 8., 12.)));
-        assert_eq!(quartiles(vec![0usize, 2, 4, 8, 10, 11].into_iter()), Some((2., 6., 10.)));
-        assert_eq!(quartiles(vec![3usize, 5, 7, 9, 12, 20, 21].into_iter()), Some((5., 9., 20.)));
-        assert_eq!(quartiles(vec![1usize, 5, 6, 6, 7, 10, 19].into_iter()), Some((5., 6., 10.)));
+        assert_eq!(
+            quartiles(vec![3usize, 5, 7].into_iter()),
+            Some((3., 5., 7.))
+        );
+        assert_eq!(
+            quartiles(vec![3usize, 5, 7, 9].into_iter()),
+            Some((4., 6., 8.))
+        );
+        assert_eq!(
+            quartiles(vec![1usize, 2, 7, 11].into_iter()),
+            Some((1.5, 4.5, 9.))
+        );
+        assert_eq!(
+            quartiles(vec![3usize, 5, 7, 9, 12].into_iter()),
+            Some((4., 7., 10.5))
+        );
+        assert_eq!(
+            quartiles(vec![2usize, 2, 3, 8, 10].into_iter()),
+            Some((2., 3., 9.))
+        );
+        assert_eq!(
+            quartiles(vec![3usize, 5, 7, 9, 12, 20].into_iter()),
+            Some((5., 8., 12.))
+        );
+        assert_eq!(
+            quartiles(vec![0usize, 2, 4, 8, 10, 11].into_iter()),
+            Some((2., 6., 10.))
+        );
+        assert_eq!(
+            quartiles(vec![3usize, 5, 7, 9, 12, 20, 21].into_iter()),
+            Some((5., 9., 20.))
+        );
+        assert_eq!(
+            quartiles(vec![1usize, 5, 6, 6, 7, 10, 19].into_iter()),
+            Some((5., 6., 10.))
+        );
     }
 
     #[test]
     fn quartiles_floats() {
-        assert_eq!(quartiles(vec![3_f64, 5., 7.].into_iter()), Some((3., 5., 7.)));
-        assert_eq!(quartiles(vec![3_f64, 5., 7., 9.].into_iter()), Some((4., 6., 8.)));
-        assert_eq!(quartiles(vec![3_f64, 5., 7., 9., 12.].into_iter()), Some((4., 7., 10.5)));
-        assert_eq!(quartiles(vec![3_f64, 5., 7., 9., 12., 20.].into_iter()), Some((5., 8., 12.)));
-        assert_eq!(quartiles(vec![3_f64, 5., 7., 9., 12., 20., 21.].into_iter()), Some((5., 9., 20.)));
+        assert_eq!(
+            quartiles(vec![3_f64, 5., 7.].into_iter()),
+            Some((3., 5., 7.))
+        );
+        assert_eq!(
+            quartiles(vec![3_f64, 5., 7., 9.].into_iter()),
+            Some((4., 6., 8.))
+        );
+        assert_eq!(
+            quartiles(vec![3_f64, 5., 7., 9., 12.].into_iter()),
+            Some((4., 7., 10.5))
+        );
+        assert_eq!(
+            quartiles(vec![3_f64, 5., 7., 9., 12., 20.].into_iter()),
+            Some((5., 8., 12.))
+        );
+        assert_eq!(
+            quartiles(vec![3_f64, 5., 7., 9., 12., 20., 21.].into_iter()),
+            Some((5., 9., 20.))
+        );
     }
 }
