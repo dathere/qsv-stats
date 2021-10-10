@@ -1,11 +1,11 @@
 [package]
 name = "streaming-stats"
-version = "0.2.3"  #:version
+version = "0.3.0"  #:version
 authors = ["Andrew Gallant <jamslam@gmail.com>"]
 description = "Experimental crate for computing basic statistics on streams."
 documentation = "https://docs.rs/streaming-stats"
 homepage = "https://github.com/BurntSushi/rust-stats"
-repository = "https://github.com/BurntSushi/rust-stats"
+repository = "https://github.com/jqnatividad/rust-stats"
 readme = "README.md"
 keywords = ["statistics", "stats", "median", "mean", "stddev"]
 license = "Unlicense/MIT"
