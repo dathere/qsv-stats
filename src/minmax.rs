@@ -45,19 +45,24 @@ impl<T: PartialOrd + Clone> MinMax<T> {
         self.max.as_ref()
     }
 
-    /// Returns the number of data point.
+    /// Returns the number of data points.
     pub fn len(&self) -> usize {
         self.len as usize
+    }
+
+    /// Returns true if there are no data points.
+    pub fn is_empty(&self) -> bool {
+        self.len != 0
     }
 }
 
 impl<T: PartialOrd> Commute for MinMax<T> {
     fn merge(&mut self, v: MinMax<T>) {
         self.len += v.len;
-        if self.min.is_none() || (!v.min.is_none() && v.min < self.min) {
+        if self.min.is_none() || (v.min.is_some() && v.min < self.min) {
             self.min = v.min;
         }
-        if self.max.is_none() || (!v.max.is_none() && v.max > self.max) {
+        if self.max.is_none() || (v.max.is_some() && v.max > self.max) {
             self.max = v.max;
         }
     }
