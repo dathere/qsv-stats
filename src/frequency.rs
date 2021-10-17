@@ -62,7 +62,7 @@ impl<T: Eq + Hash> Frequencies<T> {
     /// descending order.
     pub fn most_frequent(&self) -> Vec<(&T, u64)> {
         let mut counts: Vec<_> = self.data.iter().map(|(k, &v)| (k, v)).collect();
-        counts.sort_by(|&(_, c1), &(_, c2)| c2.cmp(&c1));
+        counts.sort_unstable_by(|&(_, c1), &(_, c2)| c2.cmp(&c1));
         counts
     }
 
@@ -70,13 +70,18 @@ impl<T: Eq + Hash> Frequencies<T> {
     /// ascending order.
     pub fn least_frequent(&self) -> Vec<(&T, u64)> {
         let mut counts: Vec<_> = self.data.iter().map(|(k, &v)| (k, v)).collect();
-        counts.sort_by(|&(_, c1), &(_, c2)| c1.cmp(&c2));
+        counts.sort_unstable_by(|&(_, c1), &(_, c2)| c1.cmp(&c2));
         counts
     }
 
     /// Returns the cardinality of the data.
     pub fn len(&self) -> usize {
         self.data.len()
+    }
+
+    /// Returns true if there is no frequency/cardinality data.
+    pub fn is_empty(&self) -> bool {
+        self.data.is_empty()
     }
 }
 
