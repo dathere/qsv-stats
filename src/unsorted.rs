@@ -204,7 +204,7 @@ where
     let mut values = vec![];
     let mut count = 0;
     for x in it {
-        if values.len() == 0 {
+        if values.is_empty() {
             values.push(x);
             modes.push(1);
             continue;
@@ -260,7 +260,7 @@ impl<T: PartialOrd> Unsorted<T> {
 
     fn sort(&mut self) {
         if !self.sorted {
-            self.data.sort();
+            self.data.sort_unstable();
         }
     }
 
