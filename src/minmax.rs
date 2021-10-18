@@ -52,7 +52,7 @@ impl<T: PartialOrd + Clone> MinMax<T> {
 
     /// Returns true if there are no data points.
     pub fn is_empty(&self) -> bool {
-        self.len != 0
+        self.len == 0
     }
 }
 
@@ -116,6 +116,12 @@ mod test {
         let minmax: MinMax<u32> = vec![1u32, 4, 2, 3, 10].into_iter().collect();
         assert_eq!(minmax.min(), Some(&1u32));
         assert_eq!(minmax.max(), Some(&10u32));
+    }
+    
+    #[test]
+    fn minmax_empty() {
+        let minmax: MinMax<u32> = MinMax::new();
+        assert_eq!(minmax.is_empty(), true);
     }
 
     #[test]
