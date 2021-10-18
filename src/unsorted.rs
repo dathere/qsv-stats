@@ -258,6 +258,11 @@ impl<T: PartialOrd> Unsorted<T> {
         self.data.len()
     }
 
+    /// Return true if empty.
+    pub fn is_empty(&self) -> bool {
+        self.data.is_empty()
+    }
+
     fn sort(&mut self) {
         if !self.sorted {
             self.data.sort_unstable();
