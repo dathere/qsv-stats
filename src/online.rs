@@ -93,6 +93,11 @@ impl OnlineStats {
     pub fn len(&self) -> usize {
         self.size as usize
     }
+
+    /// Returns if empty.
+    pub fn is_empty(&self) -> bool {
+        self.size == 0
+    }
 }
 
 impl Commute for OnlineStats {
@@ -154,6 +159,12 @@ mod test {
         let mut got = var1;
         got.merge(var2);
         assert_eq!(expected.stddev(), got.stddev());
+    }
+
+    #[test]
+    fn stddev_empty() {
+        let expected = OnlineStats::new();
+        assert_eq!(expected.is_empty(), true);
     }
 
     #[test]
