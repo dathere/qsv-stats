@@ -117,7 +117,7 @@ mod test {
         assert_eq!(minmax.min(), Some(&1u32));
         assert_eq!(minmax.max(), Some(&10u32));
     }
-    
+
     #[test]
     fn minmax_empty() {
         let minmax: MinMax<u32> = MinMax::new();
