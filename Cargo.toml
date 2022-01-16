@@ -8,10 +8,10 @@ homepage = "https://github.com/jqnatividad/rust-stats"
 repository = "https://github.com/jqnatividad/rust-stats"
 readme = "README.md"
 keywords = ["statistics", "stats", "median", "mean", "stddev"]
-license = "Unlicense/MIT"
+license  = "MIT OR Unlicense"
 
 [lib]
 name = "stats"
 
 [dependencies]
-num-traits = "0.2"
+num-traits = "0.2.14"
