@@ -107,7 +107,9 @@ impl<T: Commute> Commute for Option<T> {
                 *self = other;
             }
             Some(ref mut v1) => {
-                other.map(|v2| v1.merge(v2));
+                if let Some(v2) = other {
+                    v1.merge(v2)
+                }
             }
         }
     }
