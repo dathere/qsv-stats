@@ -70,6 +70,7 @@ impl OnlineStats {
     }
 
     /// Add a new sample.
+    #[inline]
     pub fn add<T: ToPrimitive>(&mut self, sample: T) {
         let sample = sample.to_f64().unwrap();
         // Taken from: http://goo.gl/JKeqvj
@@ -85,11 +86,13 @@ impl OnlineStats {
     /// Add a new NULL value to the population.
     ///
     /// This increases the population size by `1`.
+    #[inline]
     pub fn add_null(&mut self) {
         self.add(0usize);
     }
 
     /// Returns the number of data points.
+    #[inline]    
     pub fn len(&self) -> usize {
         self.size as usize
     }
@@ -101,6 +104,7 @@ impl OnlineStats {
 }
 
 impl Commute for OnlineStats {
+    #[inline]
     fn merge(&mut self, v: OnlineStats) {
         // Taken from: http://goo.gl/iODi28
         let (s1, s2) = (self.size as f64, v.size as f64);
@@ -123,12 +127,14 @@ impl Default for OnlineStats {
 }
 
 impl fmt::Debug for OnlineStats {
+    #[inline]
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{:.10} +/- {:.10}", self.mean(), self.stddev())
     }
 }
 
 impl<T: ToPrimitive> FromIterator<T> for OnlineStats {
+    #[inline]
     fn from_iter<I: IntoIterator<Item = T>>(it: I) -> OnlineStats {
         let mut v = OnlineStats::new();
         v.extend(it);
@@ -137,6 +143,7 @@ impl<T: ToPrimitive> FromIterator<T> for OnlineStats {
 }
 
 impl<T: ToPrimitive> Extend<T> for OnlineStats {
+    #[inline]
     fn extend<I: IntoIterator<Item = T>>(&mut self, it: I) {
         for sample in it {
             self.add(sample)

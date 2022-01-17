@@ -67,16 +67,19 @@ pub struct Sorted<T> {
 
 impl<T: PartialOrd> Sorted<T> {
     /// Create initial empty state.
+    #[inline]
     pub fn new() -> Sorted<T> {
         Default::default()
     }
 
     /// Add a new element to the set.
+    #[inline]
     pub fn add(&mut self, v: T) {
         self.data.push(Partial(v))
     }
 
     /// Returns the number of data points.
+    #[inline]
     pub fn len(&self) -> usize {
         self.data.len()
     }
@@ -84,6 +87,7 @@ impl<T: PartialOrd> Sorted<T> {
 
 impl<T: PartialOrd + Clone> Sorted<T> {
     /// Returns the mode of the data.
+    #[inline]
     pub fn mode(&self) -> Option<T> {
         let p = mode_on_sorted(self.data.clone().into_sorted_vec().into_iter());
         p.map(|p| p.0)
@@ -92,6 +96,7 @@ impl<T: PartialOrd + Clone> Sorted<T> {
 
 impl<T: PartialOrd + ToPrimitive + Clone> Sorted<T> {
     /// Returns the median of the data.
+    #[inline]
     pub fn median(&self) -> Option<f64> {
         // Grr. The only way to avoid the alloc here is to take `self` by
         // value. Could return `(f64, Sorted<T>)`, but that seems a bit weird.
@@ -103,6 +108,7 @@ impl<T: PartialOrd + ToPrimitive + Clone> Sorted<T> {
 }
 
 impl<T: PartialOrd> Commute for Sorted<T> {
+    #[inline]
     fn merge(&mut self, v: Sorted<T>) {
         // should this be `into_sorted_vec`?
         self.data.extend(v.data.into_vec().into_iter());
@@ -110,10 +116,12 @@ impl<T: PartialOrd> Commute for Sorted<T> {
 }
 
 impl<T: PartialOrd> Default for Sorted<T> {
+    #[inline]
     fn default() -> Sorted<T> { Sorted { data: BinaryHeap::new() } }
 }
 
 impl<T: PartialOrd> FromIterator<T> for Sorted<T> {
+    #[inline]
     fn from_iter<I: IntoIterator<Item=T>>(it: I) -> Sorted<T> {
         let mut v = Sorted::new();
         v.extend(it);
@@ -122,6 +130,7 @@ impl<T: PartialOrd> FromIterator<T> for Sorted<T> {
 }
 
 impl<T: PartialOrd> Extend<T> for Sorted<T> {
+    #[inline]
     fn extend<I: IntoIterator<Item=T>>(&mut self, it: I) {
         self.data.extend(it.into_iter().map(Partial))
     }

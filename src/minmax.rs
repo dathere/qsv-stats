@@ -21,6 +21,7 @@ impl<T: PartialOrd + Clone> MinMax<T> {
     }
 
     /// Add a sample to the data.
+    #[inline]
     pub fn add(&mut self, sample: T) {
         self.len += 1;
         if self.min.as_ref().map(|v| &sample < v).unwrap_or(true) {
@@ -34,6 +35,7 @@ impl<T: PartialOrd + Clone> MinMax<T> {
     /// Returns the minimum of the data set.
     ///
     /// `None` is returned if and only if the number of samples is `0`.
+    #[inline]
     pub fn min(&self) -> Option<&T> {
         self.min.as_ref()
     }
@@ -41,22 +43,26 @@ impl<T: PartialOrd + Clone> MinMax<T> {
     /// Returns the maximum of the data set.
     ///
     /// `None` is returned if and only if the number of samples is `0`.
+    #[inline]
     pub fn max(&self) -> Option<&T> {
         self.max.as_ref()
     }
 
     /// Returns the number of data points.
+    #[inline]
     pub fn len(&self) -> usize {
         self.len as usize
     }
 
     /// Returns true if there are no data points.
+    #[inline]
     pub fn is_empty(&self) -> bool {
         self.len == 0
     }
 }
 
 impl<T: PartialOrd> Commute for MinMax<T> {
+    #[inline]
     fn merge(&mut self, v: MinMax<T>) {
         self.len += v.len;
         if self.min.is_none() || (v.min.is_some() && v.min < self.min) {
@@ -69,6 +75,7 @@ impl<T: PartialOrd> Commute for MinMax<T> {
 }
 
 impl<T: PartialOrd> Default for MinMax<T> {
+    #[inline]
     fn default() -> MinMax<T> {
         MinMax {
             len: 0,
@@ -79,6 +86,7 @@ impl<T: PartialOrd> Default for MinMax<T> {
 }
 
 impl<T: fmt::Debug> fmt::Debug for MinMax<T> {
+    #[inline]
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match (&self.min, &self.max) {
             (&Some(ref min), &Some(ref max)) => {
@@ -91,6 +99,7 @@ impl<T: fmt::Debug> fmt::Debug for MinMax<T> {
 }
 
 impl<T: PartialOrd + Clone> FromIterator<T> for MinMax<T> {
+    #[inline]
     fn from_iter<I: IntoIterator<Item = T>>(it: I) -> MinMax<T> {
         let mut v = MinMax::new();
         v.extend(it);
@@ -99,6 +108,7 @@ impl<T: PartialOrd + Clone> FromIterator<T> for MinMax<T> {
 }
 
 impl<T: PartialOrd + Clone> Extend<T> for MinMax<T> {
+    #[inline]
     fn extend<I: IntoIterator<Item = T>>(&mut self, it: I) {
         for sample in it {
             self.add(sample);

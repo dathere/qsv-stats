@@ -25,6 +25,7 @@ impl<T: Eq + Hash> Frequencies<T> {
     }
 
     /// Add a sample to the frequency table.
+    #[inline]
     pub fn add(&mut self, v: T) {
         match self.data.entry(v) {
             Entry::Vacant(count) => {
@@ -37,16 +38,19 @@ impl<T: Eq + Hash> Frequencies<T> {
     }
 
     /// Return the number of occurrences of `v` in the data.
+    #[inline]
     pub fn count(&self, v: &T) -> u64 {
         self.data.get(v).copied().unwrap_or(0)
     }
 
     /// Return the cardinality (number of unique elements) in the data.
+    #[inline]
     pub fn cardinality(&self) -> u64 {
         self.len() as u64
     }
 
     /// Returns the mode if one exists.
+    #[inline]
     pub fn mode(&self) -> Option<&T> {
         let counts = self.most_frequent();
         if counts.is_empty() {
@@ -60,6 +64,7 @@ impl<T: Eq + Hash> Frequencies<T> {
 
     /// Return a `Vec` of elements and their corresponding counts in
     /// descending order.
+    #[inline]
     pub fn most_frequent(&self) -> Vec<(&T, u64)> {
         let mut counts: Vec<_> = self.data.iter().map(|(k, &v)| (k, v)).collect();
         counts.sort_unstable_by(|&(_, c1), &(_, c2)| c2.cmp(&c1));
@@ -68,6 +73,7 @@ impl<T: Eq + Hash> Frequencies<T> {
 
     /// Return a `Vec` of elements and their corresponding counts in
     /// ascending order.
+    #[inline]
     pub fn least_frequent(&self) -> Vec<(&T, u64)> {
         let mut counts: Vec<_> = self.data.iter().map(|(k, &v)| (k, v)).collect();
         counts.sort_unstable_by(|&(_, c1), &(_, c2)| c1.cmp(&c2));
@@ -86,6 +92,7 @@ impl<T: Eq + Hash> Frequencies<T> {
 }
 
 impl<T: Eq + Hash> Commute for Frequencies<T> {
+    #[inline]
     fn merge(&mut self, v: Frequencies<T>) {
         for (k, v2) in v.data.into_iter() {
             match self.data.entry(k) {
@@ -101,6 +108,7 @@ impl<T: Eq + Hash> Commute for Frequencies<T> {
 }
 
 impl<T: Eq + Hash> Default for Frequencies<T> {
+    #[inline]
     fn default() -> Frequencies<T> {
         Frequencies {
             data: HashMap::with_capacity(100000),
@@ -109,6 +117,7 @@ impl<T: Eq + Hash> Default for Frequencies<T> {
 }
 
 impl<T: Eq + Hash> FromIterator<T> for Frequencies<T> {
+    #[inline]
     fn from_iter<I: IntoIterator<Item = T>>(it: I) -> Frequencies<T> {
         let mut v = Frequencies::new();
         v.extend(it);
@@ -117,6 +126,7 @@ impl<T: Eq + Hash> FromIterator<T> for Frequencies<T> {
 }
 
 impl<T: Eq + Hash> Extend<T> for Frequencies<T> {
+    #[inline]
     fn extend<I: IntoIterator<Item = T>>(&mut self, it: I) {
         for sample in it {
             self.add(sample);

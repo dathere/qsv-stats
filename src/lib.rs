@@ -19,53 +19,67 @@ struct Partial<T>(pub T);
 impl<T: PartialEq> Eq for Partial<T> {}
 
 impl<T: PartialOrd> Ord for Partial<T> {
+    #[inline]
     fn cmp(&self, other: &Partial<T>) -> Ordering {
         self.partial_cmp(other).unwrap_or(Ordering::Less)
     }
 }
 
 impl<T: ToPrimitive> ToPrimitive for Partial<T> {
+    #[inline]
     fn to_isize(&self) -> Option<isize> {
         self.0.to_isize()
     }
+    #[inline]
     fn to_i8(&self) -> Option<i8> {
         self.0.to_i8()
     }
+    #[inline]
     fn to_i16(&self) -> Option<i16> {
         self.0.to_i16()
     }
+    #[inline]
     fn to_i32(&self) -> Option<i32> {
         self.0.to_i32()
     }
+    #[inline]
     fn to_i64(&self) -> Option<i64> {
         self.0.to_i64()
     }
 
+    #[inline]
     fn to_usize(&self) -> Option<usize> {
         self.0.to_usize()
     }
+    #[inline]
     fn to_u8(&self) -> Option<u8> {
         self.0.to_u8()
     }
+    #[inline]
     fn to_u16(&self) -> Option<u16> {
         self.0.to_u16()
     }
+    #[inline]
     fn to_u32(&self) -> Option<u32> {
         self.0.to_u32()
     }
+    #[inline]
     fn to_u64(&self) -> Option<u64> {
         self.0.to_u64()
     }
 
+    #[inline]
     fn to_f32(&self) -> Option<f32> {
         self.0.to_f32()
     }
+    #[inline]
     fn to_f64(&self) -> Option<f64> {
         self.0.to_f64()
     }
 }
 
 impl<T: hash::Hash> hash::Hash for Partial<T> {
+    #[inline]
     fn hash<H: hash::Hasher>(&self, state: &mut H) {
         self.0.hash(state);
     }
@@ -80,6 +94,7 @@ pub trait Commute: Sized {
     fn merge(&mut self, other: Self);
 
     /// Merges the values in the iterator into `self`.
+    #[inline]
     fn consume<I: Iterator<Item = Self>>(&mut self, other: I) {
         for v in other {
             self.merge(v);
@@ -90,6 +105,7 @@ pub trait Commute: Sized {
 /// Merges all items in the stream.
 ///
 /// If the stream is empty, `None` is returned.
+#[inline]
 pub fn merge_all<T: Commute, I: Iterator<Item = T>>(mut it: I) -> Option<T> {
     match it.next() {
         None => None,
@@ -101,6 +117,7 @@ pub fn merge_all<T: Commute, I: Iterator<Item = T>>(mut it: I) -> Option<T> {
 }
 
 impl<T: Commute> Commute for Option<T> {
+    #[inline]
     fn merge(&mut self, other: Option<T>) {
         match *self {
             None => {
@@ -116,6 +133,7 @@ impl<T: Commute> Commute for Option<T> {
 }
 
 impl<T: Commute, E> Commute for Result<T, E> {
+    #[inline]
     fn merge(&mut self, other: Result<T, E>) {
         // Can't figure out how to work around the borrow checker to make
         // this code less awkward.
@@ -143,6 +161,7 @@ impl<T: Commute, E> Commute for Result<T, E> {
 }
 
 impl<T: Commute> Commute for Vec<T> {
+    #[inline]
     fn merge(&mut self, other: Vec<T>) {
         assert_eq!(self.len(), other.len());
         for (v1, v2) in self.iter_mut().zip(other.into_iter()) {

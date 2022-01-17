@@ -243,38 +243,45 @@ pub struct Unsorted<T> {
 
 impl<T: PartialOrd> Unsorted<T> {
     /// Create initial empty state.
+    #[inline]
     pub fn new() -> Unsorted<T> {
         Default::default()
     }
 
     /// Add a new element to the set.
+    #[inline]
     pub fn add(&mut self, v: T) {
         self.dirtied();
         self.data.push(Partial(v))
     }
 
     /// Return the number of data points.
+    #[inline]
     pub fn len(&self) -> usize {
         self.data.len()
     }
 
     /// Return true if empty.
+    #[inline]
     pub fn is_empty(&self) -> bool {
         self.data.is_empty()
     }
 
+    #[inline]
     fn sort(&mut self) {
         if !self.sorted {
             self.data.sort_unstable();
         }
     }
 
+    #[inline]
     fn dirtied(&mut self) {
         self.sorted = false;
     }
 }
 
 impl<T: PartialOrd + Eq + Clone> Unsorted<T> {
+    #[inline]
     pub fn cardinality(&mut self) -> usize {
         self.sort();
         let mut set = self.data.clone();
@@ -285,12 +292,14 @@ impl<T: PartialOrd + Eq + Clone> Unsorted<T> {
 
 impl<T: PartialOrd + Clone> Unsorted<T> {
     /// Returns the mode of the data.
+    #[inline]
     pub fn mode(&mut self) -> Option<T> {
         self.sort();
         mode_on_sorted(self.data.iter()).map(|p| p.0.clone())
     }
 
     /// Returns the modes of the data.
+    #[inline]
     pub fn modes(&mut self) -> Vec<T> {
         self.sort();
         modes_on_sorted(self.data.iter())
@@ -302,6 +311,7 @@ impl<T: PartialOrd + Clone> Unsorted<T> {
 
 impl<T: PartialOrd + ToPrimitive> Unsorted<T> {
     /// Returns the median of the data.
+    #[inline]
     pub fn median(&mut self) -> Option<f64> {
         self.sort();
         median_on_sorted(&*self.data)
@@ -310,6 +320,7 @@ impl<T: PartialOrd + ToPrimitive> Unsorted<T> {
 
 impl<T: PartialOrd + ToPrimitive> Unsorted<T> {
     /// Returns the quartiles of the data.
+    #[inline]
     pub fn quartiles(&mut self) -> Option<(f64, f64, f64)> {
         self.sort();
         quartiles_on_sorted(&*self.data)
@@ -317,6 +328,7 @@ impl<T: PartialOrd + ToPrimitive> Unsorted<T> {
 }
 
 impl<T: PartialOrd> Commute for Unsorted<T> {
+    #[inline]
     fn merge(&mut self, v: Unsorted<T>) {
         self.dirtied();
         self.data.extend(v.data.into_iter());
@@ -324,6 +336,7 @@ impl<T: PartialOrd> Commute for Unsorted<T> {
 }
 
 impl<T: PartialOrd> Default for Unsorted<T> {
+    #[inline]
     fn default() -> Unsorted<T> {
         Unsorted {
             data: Vec::with_capacity(1000),
@@ -333,6 +346,7 @@ impl<T: PartialOrd> Default for Unsorted<T> {
 }
 
 impl<T: PartialOrd> FromIterator<T> for Unsorted<T> {
+    #[inline]
     fn from_iter<I: IntoIterator<Item = T>>(it: I) -> Unsorted<T> {
         let mut v = Unsorted::new();
         v.extend(it);
@@ -341,6 +355,7 @@ impl<T: PartialOrd> FromIterator<T> for Unsorted<T> {
 }
 
 impl<T: PartialOrd> Extend<T> for Unsorted<T> {
+    #[inline]
     fn extend<I: IntoIterator<Item = T>>(&mut self, it: I) {
         self.dirtied();
         self.data.extend(it.into_iter().map(Partial))
