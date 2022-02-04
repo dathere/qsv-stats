@@ -18,6 +18,7 @@ struct Partial<T>(pub T);
 
 impl<T: PartialEq> Eq for Partial<T> {}
 
+#[allow(clippy::derive_ord_xor_partial_ord)]
 impl<T: PartialOrd> Ord for Partial<T> {
     #[inline]
     fn cmp(&self, other: &Partial<T>) -> Ordering {
@@ -78,6 +79,7 @@ impl<T: ToPrimitive> ToPrimitive for Partial<T> {
     }
 }
 
+#[allow(clippy::derive_hash_xor_eq)]
 impl<T: hash::Hash> hash::Hash for Partial<T> {
     #[inline]
     fn hash<H: hash::Hasher>(&self, state: &mut H) {

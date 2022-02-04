@@ -181,6 +181,7 @@ where
             next_count = 0;
         }
 
+        #[allow(clippy::comparison_chain)]
         if next_count > mode_count {
             mode = next;
             mode_count = next_count;
