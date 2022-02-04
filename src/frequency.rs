@@ -54,8 +54,9 @@ impl<T: Eq + Hash> Frequencies<T> {
     pub fn mode(&self) -> Option<&T> {
         let counts = self.most_frequent();
         if counts.is_empty() {
-            None
-        } else if counts.len() >= 2 && counts[0].1 == counts[1].1 {
+            return None;
+        }
+        if counts.len() >= 2 && counts[0].1 == counts[1].1 {
             None
         } else {
             Some(counts[0].0)
