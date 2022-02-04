@@ -86,11 +86,14 @@ where
 {
     Some(match data.len() {
         0..=2 => return None,
-        3 => (
-            data[0].to_f64().unwrap(),
-            data[1].to_f64().unwrap(),
-            data[2].to_f64().unwrap(),
-        ),
+        3 => {
+            assert!(data.len() == 3);
+            (
+                data[0].to_f64().unwrap(),
+                data[1].to_f64().unwrap(),
+                data[2].to_f64().unwrap(),
+            )
+        }
         len => {
             let r = len % 4;
             let k = (len - r) / 4;
@@ -101,6 +104,7 @@ where
                 // {x_i > q2} as R, #L == #R == 2k holds true. Thus,
                 // q1 = (x_{k-1} + x_{k}) / 2 and q3 = (x_{3k-1} + x_{3k}) / 2.
                 0 => {
+                    assert!(data.len() >= 3 * k);
                     let (q1_l, q1_r, q2_l, q2_r, q3_l, q3_r) = (
                         data[k - 1].to_f64().unwrap(),
                         data[k].to_f64().unwrap(),
@@ -117,6 +121,7 @@ where
                 // as L and {x_i > q2} as R, #L == #R == 2k holds true. Thus,
                 // q1 = (x_{k-1} + x_{k}) / 2 and q3 = (x_{3k} + x_{3k+1}) / 2.
                 1 => {
+                    assert!(data.len() >= 3 * k + 1);
                     let (q1_l, q1_r, q2, q3_l, q3_r) = (
                         data[k - 1].to_f64().unwrap(),
                         data[k].to_f64().unwrap(),
@@ -132,6 +137,7 @@ where
                 // {x_i > q2} as R, it's true that #L == #R == 2k+1.
                 // Thus, q1 = x_{k} and q3 = x_{3k+1}.
                 2 => {
+                    assert!(data.len() >= 3 * k + 1);
                     let (q1, q2_l, q2_r, q3) = (
                         data[k].to_f64().unwrap(),
                         data[2 * k].to_f64().unwrap(),
@@ -146,6 +152,7 @@ where
                 // as L and {x_i > q2} as R, #L == #R == 2k+1 holds true.
                 // Thus, q1 = x_{k} and q3 = x_{3k+2}.
                 _ => {
+                    assert!(data.len() >= 3 * k + 2);
                     let (q1, q2, q3) = (
                         data[k].to_f64().unwrap(),
                         data[2 * k + 1].to_f64().unwrap(),
