@@ -7,30 +7,33 @@ use num_traits::ToPrimitive;
 use Commute;
 
 /// Compute the standard deviation of a stream in constant space.
-pub fn stddev<I>(it: I) -> f64
+pub fn stddev<'a, I, T>(x: I) -> f64
 where
-    I: Iterator,
-    <I as Iterator>::Item: ToPrimitive,
+    I: IntoIterator<Item = T>,
+    T: Into<&'a f64>,
 {
-    it.collect::<OnlineStats>().stddev()
+    let it = x.into_iter();
+    stddev(it)
 }
 
 /// Compute the variance of a stream in constant space.
-pub fn variance<I>(it: I) -> f64
+pub fn variance<'a, I, T>(x: I) -> f64
 where
-    I: Iterator,
-    <I as Iterator>::Item: ToPrimitive,
+    I: IntoIterator<Item = T>,
+    T: Into<&'a f64>,
 {
-    it.collect::<OnlineStats>().variance()
+    let it = x.into_iter();
+    variance(it)
 }
 
 /// Compute the mean of a stream in constant space.
-pub fn mean<I>(it: I) -> f64
+pub fn mean<'a, I, T>(x: I) -> f64
 where
-    I: Iterator,
-    <I as Iterator>::Item: ToPrimitive,
+    I: IntoIterator<Item = T>,
+    T: Into<&'a f64>,
 {
-    it.collect::<OnlineStats>().mean()
+    let it = x.into_iter();
+    mean(it)
 }
 
 /// Online state for computing mean, variance and standard deviation.
