@@ -86,14 +86,13 @@ where
 {
     Some(match data.len() {
         0..=2 => return None,
-        3 => {
-            assert!(data.len() == 3);
+        3 => unsafe {
             (
-                data[0].to_f64().unwrap(),
-                data[1].to_f64().unwrap(),
-                data[2].to_f64().unwrap(),
+                data.get_unchecked(0).to_f64().unwrap(),
+                data.get_unchecked(1).to_f64().unwrap(),
+                data.get_unchecked(2).to_f64().unwrap(),
             )
-        }
+        },
         len => {
             let r = len % 4;
             let k = (len - r) / 4;
@@ -103,46 +102,44 @@ where
                 // If we divide data into two parts {x_i < q2} as L and
                 // {x_i > q2} as R, #L == #R == 2k holds true. Thus,
                 // q1 = (x_{k-1} + x_{k}) / 2 and q3 = (x_{3k-1} + x_{3k}) / 2.
-                0 => {
-                    assert!(data.len() >= 3 * k);
+                0 => unsafe {
                     let (q1_l, q1_r, q2_l, q2_r, q3_l, q3_r) = (
-                        data[k - 1].to_f64().unwrap(),
-                        data[k].to_f64().unwrap(),
-                        data[2 * k - 1].to_f64().unwrap(),
-                        data[2 * k].to_f64().unwrap(),
-                        data[3 * k - 1].to_f64().unwrap(),
-                        data[3 * k].to_f64().unwrap(),
+                        data.get_unchecked(k - 1).to_f64().unwrap(),
+                        data.get_unchecked(k).to_f64().unwrap(),
+                        data.get_unchecked(2 * k - 1).to_f64().unwrap(),
+                        data.get_unchecked(2 * k).to_f64().unwrap(),
+                        data.get_unchecked(3 * k - 1).to_f64().unwrap(),
+                        data.get_unchecked(3 * k).to_f64().unwrap(),
                     );
+
                     ((q1_l + q1_r) / 2., (q2_l + q2_r) / 2., (q3_l + q3_r) / 2.)
-                }
+                },
                 // Let data = {x_i}_{i=0..4k+1} where k is positive integer.
                 // Median q2 = x_{2k}.
                 // If we divide data other than q2 into two parts {x_i < q2}
                 // as L and {x_i > q2} as R, #L == #R == 2k holds true. Thus,
                 // q1 = (x_{k-1} + x_{k}) / 2 and q3 = (x_{3k} + x_{3k+1}) / 2.
-                1 => {
-                    assert!(data.len() >= 3 * k + 1);
+                1 => unsafe {
                     let (q1_l, q1_r, q2, q3_l, q3_r) = (
-                        data[k - 1].to_f64().unwrap(),
-                        data[k].to_f64().unwrap(),
-                        data[2 * k].to_f64().unwrap(),
-                        data[3 * k].to_f64().unwrap(),
-                        data[3 * k + 1].to_f64().unwrap(),
+                        data.get_unchecked(k - 1).to_f64().unwrap(),
+                        data.get_unchecked(k).to_f64().unwrap(),
+                        data.get_unchecked(2 * k).to_f64().unwrap(),
+                        data.get_unchecked(3 * k).to_f64().unwrap(),
+                        data.get_unchecked(3 * k + 1).to_f64().unwrap(),
                     );
                     ((q1_l + q1_r) / 2., q2, (q3_l + q3_r) / 2.)
-                }
+                },
                 // Let data = {x_i}_{i=0..4k+2} where k is positive integer.
                 // Median q2 = (x_{(2k+1)-1} + x_{2k+1}) / 2.
                 // If we divide data into two parts {x_i < q2} as L and
                 // {x_i > q2} as R, it's true that #L == #R == 2k+1.
                 // Thus, q1 = x_{k} and q3 = x_{3k+1}.
-                2 => {
-                    assert!(data.len() >= 3 * k + 1);
+                2 => unsafe {
                     let (q1, q2_l, q2_r, q3) = (
-                        data[k].to_f64().unwrap(),
-                        data[2 * k].to_f64().unwrap(),
-                        data[2 * k + 1].to_f64().unwrap(),
-                        data[3 * k + 1].to_f64().unwrap(),
+                        data.get_unchecked(k).to_f64().unwrap(),
+                        data.get_unchecked(2 * k).to_f64().unwrap(),
+                        data.get_unchecked(2 * k + 1).to_f64().unwrap(),
+                        data.get_unchecked(3 * k + 1).to_f64().unwrap(),
                     );
                     (q1, (q2_l + q2_r) / 2., q3)
                 }
@@ -151,12 +148,11 @@ where
                 // If we divide data other than q2 into two parts {x_i < q2}
                 // as L and {x_i > q2} as R, #L == #R == 2k+1 holds true.
                 // Thus, q1 = x_{k} and q3 = x_{3k+2}.
-                _ => {
-                    assert!(data.len() >= 3 * k + 2);
+                _ => unsafe {
                     let (q1, q2, q3) = (
-                        data[k].to_f64().unwrap(),
-                        data[2 * k + 1].to_f64().unwrap(),
-                        data[3 * k + 2].to_f64().unwrap(),
+                        data.get_unchecked(k).to_f64().unwrap(),
+                        data.get_unchecked(2 * k + 1).to_f64().unwrap(),
+                        data.get_unchecked(3 * k + 2).to_f64().unwrap(),
                     );
                     (q1, q2, q3)
                 }
