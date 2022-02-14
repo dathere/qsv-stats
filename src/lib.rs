@@ -1,3 +1,4 @@
+extern crate ahash;
 extern crate num_traits;
 
 use num_traits::ToPrimitive;
