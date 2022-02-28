@@ -142,7 +142,7 @@ where
                         data.get_unchecked(3 * k + 1).to_f64().unwrap(),
                     );
                     (q1, (q2_l + q2_r) / 2., q3)
-                }
+                },
                 // Let data = {x_i}_{i=0..4k+3} where k is positive integer.
                 // Median q2 = x_{2k+1}.
                 // If we divide data other than q2 into two parts {x_i < q2}
@@ -155,7 +155,7 @@ where
                         data.get_unchecked(3 * k + 2).to_f64().unwrap(),
                     );
                     (q1, q2, q3)
-                }
+                },
             }
         }
     })
