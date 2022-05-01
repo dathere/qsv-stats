@@ -131,7 +131,7 @@ mod test {
     #[test]
     fn minmax_empty() {
         let minmax: MinMax<u32> = MinMax::new();
-        assert_eq!(minmax.is_empty(), true);
+        assert!(minmax.is_empty());
     }
 
     #[test]

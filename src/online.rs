@@ -174,7 +174,7 @@ mod test {
     #[test]
     fn stddev_empty() {
         let expected = OnlineStats::new();
-        assert_eq!(expected.is_empty(), true);
+        assert!(expected.is_empty());
     }
 
     #[test]
