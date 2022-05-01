@@ -113,7 +113,7 @@ impl<T: Eq + Hash> Default for Frequencies<T> {
     #[inline]
     fn default() -> Frequencies<T> {
         Frequencies {
-            data: AHashMap::with_capacity(100000),
+            data: AHashMap::with_capacity(100_000),
         }
     }
 }
