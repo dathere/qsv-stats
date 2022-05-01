@@ -24,10 +24,10 @@ impl<T: PartialOrd + Clone> MinMax<T> {
     #[inline]
     pub fn add(&mut self, sample: T) {
         self.len += 1;
-        if self.min.as_ref().map(|v| &sample < v).unwrap_or(true) {
+        if self.min.as_ref().map_or(true, |v| &sample < v) {
             self.min = Some(sample.clone());
         }
-        if self.max.as_ref().map(|v| &sample > v).unwrap_or(true) {
+        if self.max.as_ref().map_or(true, |v| &sample > v) {
             self.max = Some(sample);
         }
     }

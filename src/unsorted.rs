@@ -175,9 +175,9 @@ where
     let (mut mode, mut next) = (None, None);
     let (mut mode_count, mut next_count) = (0usize, 0usize);
     for x in it {
-        if mode.as_ref().map(|y| y == &x).unwrap_or(false) {
+        if mode.as_ref().map_or(false, |y| y == &x) {
             mode_count += 1;
-        } else if next.as_ref().map(|y| y == &x).unwrap_or(false) {
+        } else if next.as_ref().map_or(false, |y| y == &x) {
             next_count += 1;
         } else {
             next = Some(x);
