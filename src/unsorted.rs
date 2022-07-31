@@ -70,13 +70,16 @@ where
 {
     Some(match data.len() {
         0 => return None,
-        1 => data[0].to_f64().unwrap(),
-        len if len % 2 == 0 => {
-            let v1 = data[(len / 2) - 1].to_f64().unwrap();
-            let v2 = data[len / 2].to_f64().unwrap();
+        1 => unsafe { data.get_unchecked(0).to_f64().unwrap_unchecked() },
+        len if len % 2 == 0 => unsafe {
+            let v1 = data
+                .get_unchecked((len / 2) - 1)
+                .to_f64()
+                .unwrap_unchecked();
+            let v2 = data.get_unchecked(len / 2).to_f64().unwrap_unchecked();
             (v1 + v2) / 2.0
-        }
-        len => data[len / 2].to_f64().unwrap(),
+        },
+        len => unsafe { data.get_unchecked(len / 2).to_f64().unwrap_unchecked() },
     })
 }
 
@@ -88,9 +91,9 @@ where
         0..=2 => return None,
         3 => unsafe {
             (
-                data.get_unchecked(0).to_f64().unwrap(),
-                data.get_unchecked(1).to_f64().unwrap(),
-                data.get_unchecked(2).to_f64().unwrap(),
+                data.get_unchecked(0).to_f64().unwrap_unchecked(),
+                data.get_unchecked(1).to_f64().unwrap_unchecked(),
+                data.get_unchecked(2).to_f64().unwrap_unchecked(),
             )
         },
         len => {
@@ -104,12 +107,12 @@ where
                 // q1 = (x_{k-1} + x_{k}) / 2 and q3 = (x_{3k-1} + x_{3k}) / 2.
                 0 => unsafe {
                     let (q1_l, q1_r, q2_l, q2_r, q3_l, q3_r) = (
-                        data.get_unchecked(k - 1).to_f64().unwrap(),
-                        data.get_unchecked(k).to_f64().unwrap(),
-                        data.get_unchecked(2 * k - 1).to_f64().unwrap(),
-                        data.get_unchecked(2 * k).to_f64().unwrap(),
-                        data.get_unchecked(3 * k - 1).to_f64().unwrap(),
-                        data.get_unchecked(3 * k).to_f64().unwrap(),
+                        data.get_unchecked(k - 1).to_f64().unwrap_unchecked(),
+                        data.get_unchecked(k).to_f64().unwrap_unchecked(),
+                        data.get_unchecked(2 * k - 1).to_f64().unwrap_unchecked(),
+                        data.get_unchecked(2 * k).to_f64().unwrap_unchecked(),
+                        data.get_unchecked(3 * k - 1).to_f64().unwrap_unchecked(),
+                        data.get_unchecked(3 * k).to_f64().unwrap_unchecked(),
                     );
 
                     ((q1_l + q1_r) / 2., (q2_l + q2_r) / 2., (q3_l + q3_r) / 2.)
@@ -121,11 +124,11 @@ where
                 // q1 = (x_{k-1} + x_{k}) / 2 and q3 = (x_{3k} + x_{3k+1}) / 2.
                 1 => unsafe {
                     let (q1_l, q1_r, q2, q3_l, q3_r) = (
-                        data.get_unchecked(k - 1).to_f64().unwrap(),
-                        data.get_unchecked(k).to_f64().unwrap(),
-                        data.get_unchecked(2 * k).to_f64().unwrap(),
-                        data.get_unchecked(3 * k).to_f64().unwrap(),
-                        data.get_unchecked(3 * k + 1).to_f64().unwrap(),
+                        data.get_unchecked(k - 1).to_f64().unwrap_unchecked(),
+                        data.get_unchecked(k).to_f64().unwrap_unchecked(),
+                        data.get_unchecked(2 * k).to_f64().unwrap_unchecked(),
+                        data.get_unchecked(3 * k).to_f64().unwrap_unchecked(),
+                        data.get_unchecked(3 * k + 1).to_f64().unwrap_unchecked(),
                     );
                     ((q1_l + q1_r) / 2., q2, (q3_l + q3_r) / 2.)
                 },
@@ -136,10 +139,10 @@ where
                 // Thus, q1 = x_{k} and q3 = x_{3k+1}.
                 2 => unsafe {
                     let (q1, q2_l, q2_r, q3) = (
-                        data.get_unchecked(k).to_f64().unwrap(),
-                        data.get_unchecked(2 * k).to_f64().unwrap(),
-                        data.get_unchecked(2 * k + 1).to_f64().unwrap(),
-                        data.get_unchecked(3 * k + 1).to_f64().unwrap(),
+                        data.get_unchecked(k).to_f64().unwrap_unchecked(),
+                        data.get_unchecked(2 * k).to_f64().unwrap_unchecked(),
+                        data.get_unchecked(2 * k + 1).to_f64().unwrap_unchecked(),
+                        data.get_unchecked(3 * k + 1).to_f64().unwrap_unchecked(),
                     );
                     (q1, (q2_l + q2_r) / 2., q3)
                 },
@@ -150,9 +153,9 @@ where
                 // Thus, q1 = x_{k} and q3 = x_{3k+2}.
                 _ => unsafe {
                     let (q1, q2, q3) = (
-                        data.get_unchecked(k).to_f64().unwrap(),
-                        data.get_unchecked(2 * k + 1).to_f64().unwrap(),
-                        data.get_unchecked(3 * k + 2).to_f64().unwrap(),
+                        data.get_unchecked(k).to_f64().unwrap_unchecked(),
+                        data.get_unchecked(2 * k + 1).to_f64().unwrap_unchecked(),
+                        data.get_unchecked(3 * k + 2).to_f64().unwrap_unchecked(),
                     );
                     (q1, q2, q3)
                 },

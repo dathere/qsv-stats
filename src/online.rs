@@ -56,7 +56,10 @@ impl OnlineStats {
     /// Initializes variance from a sample.
     #[must_use]
     pub fn from_slice<T: ToPrimitive>(samples: &[T]) -> OnlineStats {
-        samples.iter().map(|n| n.to_f64().unwrap()).collect()
+        samples
+            .iter()
+            .map(|n| unsafe { n.to_f64().unwrap_unchecked() })
+            .collect()
     }
 
     /// Return the current mean.
@@ -81,7 +84,7 @@ impl OnlineStats {
     #[inline]
     #[allow(clippy::needless_pass_by_value)]
     pub fn add<T: ToPrimitive>(&mut self, sample: T) {
-        let sample = sample.to_f64().unwrap();
+        let sample = unsafe { sample.to_f64().unwrap_unchecked() };
         // Taken from: http://goo.gl/JKeqvj
         // See also: http://goo.gl/qTtI3V
         let oldmean = self.mean;

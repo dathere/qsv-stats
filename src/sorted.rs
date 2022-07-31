@@ -10,14 +10,14 @@ pub fn median_on_sorted<T>(data: &[T]) -> Option<f64>
         where T: PartialOrd + ToPrimitive {
     Some(match data.len() {
         0 => return None,
-        1 => data[0].to_f64().unwrap(),
-        len if len % 2 == 0 => {
-            let v1 = data[(len / 2) - 1].to_f64().unwrap();
-            let v2 = data[len / 2].to_f64().unwrap();
+        1 => unsafe { data.get_unchecked(0).to_f64().unwrap_unchecked()},
+        len if len % 2 == 0 => unsafe {
+            let v1 = data.get_unchecked((len / 2) - 1).to_f64().unwrap_unchecked();
+            let v2 = data.get_unchecked(len / 2).to_f64().unwrap_unchecked();
             (v1 + v2) / 2.0
         }
-        len => {
-            data[len / 2].to_f64().unwrap()
+        len => unsafe {
+            data.get_unchecked(len / 2).to_f64().unwrap_unchecked()
         }
     })
 }
