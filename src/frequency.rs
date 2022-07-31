@@ -20,6 +20,7 @@ impl<T: fmt::Debug + Eq + Hash> fmt::Debug for Frequencies<T> {
 
 impl<T: Eq + Hash> Frequencies<T> {
     /// Create a new frequency table with no samples.
+    #[must_use]
     pub fn new() -> Frequencies<T> {
         Default::default()
     }
@@ -39,18 +40,21 @@ impl<T: Eq + Hash> Frequencies<T> {
 
     /// Return the number of occurrences of `v` in the data.
     #[inline]
+    #[must_use]
     pub fn count(&self, v: &T) -> u64 {
         self.data.get(v).copied().unwrap_or(0)
     }
 
     /// Return the cardinality (number of unique elements) in the data.
     #[inline]
+    #[must_use]
     pub fn cardinality(&self) -> u64 {
         self.len() as u64
     }
 
     /// Returns the mode if one exists.
     #[inline]
+    #[must_use]
     pub fn mode(&self) -> Option<&T> {
         let counts = self.most_frequent();
         if counts.is_empty() {
@@ -66,6 +70,7 @@ impl<T: Eq + Hash> Frequencies<T> {
     /// Return a `Vec` of elements and their corresponding counts in
     /// descending order.
     #[inline]
+    #[must_use]
     pub fn most_frequent(&self) -> Vec<(&T, u64)> {
         let mut counts: Vec<_> = self.data.iter().map(|(k, &v)| (k, v)).collect();
         counts.sort_unstable_by(|&(_, c1), &(_, c2)| c2.cmp(&c1));
@@ -75,6 +80,7 @@ impl<T: Eq + Hash> Frequencies<T> {
     /// Return a `Vec` of elements and their corresponding counts in
     /// ascending order.
     #[inline]
+    #[must_use]
     pub fn least_frequent(&self) -> Vec<(&T, u64)> {
         let mut counts: Vec<_> = self.data.iter().map(|(k, &v)| (k, v)).collect();
         counts.sort_unstable_by(|&(_, c1), &(_, c2)| c1.cmp(&c2));
@@ -82,11 +88,13 @@ impl<T: Eq + Hash> Frequencies<T> {
     }
 
     /// Returns the cardinality of the data.
+    #[must_use]
     pub fn len(&self) -> usize {
         self.data.len()
     }
 
     /// Returns true if there is no frequency/cardinality data.
+    #[must_use]
     pub fn is_empty(&self) -> bool {
         self.data.is_empty()
     }
@@ -95,7 +103,7 @@ impl<T: Eq + Hash> Frequencies<T> {
 impl<T: Eq + Hash> Commute for Frequencies<T> {
     #[inline]
     fn merge(&mut self, v: Frequencies<T>) {
-        for (k, v2) in v.data.into_iter() {
+        for (k, v2) in v.data {
             match self.data.entry(k) {
                 Entry::Vacant(v1) => {
                     v1.insert(v2);

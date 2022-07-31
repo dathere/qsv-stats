@@ -248,6 +248,7 @@ pub struct Unsorted<T> {
 impl<T: PartialOrd> Unsorted<T> {
     /// Create initial empty state.
     #[inline]
+    #[must_use]
     pub fn new() -> Unsorted<T> {
         Default::default()
     }
@@ -256,17 +257,19 @@ impl<T: PartialOrd> Unsorted<T> {
     #[inline]
     pub fn add(&mut self, v: T) {
         self.dirtied();
-        self.data.push(Partial(v))
+        self.data.push(Partial(v));
     }
 
     /// Return the number of data points.
     #[inline]
+    #[must_use]
     pub fn len(&self) -> usize {
         self.data.len()
     }
 
     /// Return true if empty.
     #[inline]
+    #[must_use]
     pub fn is_empty(&self) -> bool {
         self.data.is_empty()
     }
@@ -318,7 +321,7 @@ impl<T: PartialOrd + ToPrimitive> Unsorted<T> {
     #[inline]
     pub fn median(&mut self) -> Option<f64> {
         self.sort();
-        median_on_sorted(&*self.data)
+        median_on_sorted(&self.data)
     }
 }
 
@@ -327,7 +330,7 @@ impl<T: PartialOrd + ToPrimitive> Unsorted<T> {
     #[inline]
     pub fn quartiles(&mut self) -> Option<(f64, f64, f64)> {
         self.sort();
-        quartiles_on_sorted(&*self.data)
+        quartiles_on_sorted(&self.data)
     }
 }
 
@@ -362,7 +365,7 @@ impl<T: PartialOrd> Extend<T> for Unsorted<T> {
     #[inline]
     fn extend<I: IntoIterator<Item = T>>(&mut self, it: I) {
         self.dirtied();
-        self.data.extend(it.into_iter().map(Partial))
+        self.data.extend(it.into_iter().map(Partial));
     }
 }
 

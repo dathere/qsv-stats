@@ -1,3 +1,11 @@
+#![allow(unconditional_recursion)]
+#![allow(clippy::default_trait_access)]
+#![allow(clippy::cast_precision_loss)]
+#![allow(clippy::cast_possible_truncation)]
+#![allow(clippy::module_name_repetitions)]
+#![allow(clippy::missing_panics_doc)]
+#![allow(clippy::use_self)]
+
 extern crate ahash;
 extern crate num_traits;
 
@@ -128,7 +136,7 @@ impl<T: Commute> Commute for Option<T> {
             }
             Some(ref mut v1) => {
                 if let Some(v2) = other {
-                    v1.merge(v2)
+                    v1.merge(v2);
                 }
             }
         }

@@ -16,6 +16,7 @@ pub struct MinMax<T> {
 
 impl<T: PartialOrd + Clone> MinMax<T> {
     /// Create an empty state where min and max values do not exist.
+    #[must_use]
     pub fn new() -> MinMax<T> {
         Default::default()
     }
@@ -36,7 +37,8 @@ impl<T: PartialOrd + Clone> MinMax<T> {
     ///
     /// `None` is returned if and only if the number of samples is `0`.
     #[inline]
-    pub fn min(&self) -> Option<&T> {
+    #[must_use]
+    pub const fn min(&self) -> Option<&T> {
         self.min.as_ref()
     }
 
@@ -44,19 +46,22 @@ impl<T: PartialOrd + Clone> MinMax<T> {
     ///
     /// `None` is returned if and only if the number of samples is `0`.
     #[inline]
-    pub fn max(&self) -> Option<&T> {
+    #[must_use]
+    pub const fn max(&self) -> Option<&T> {
         self.max.as_ref()
     }
 
     /// Returns the number of data points.
     #[inline]
-    pub fn len(&self) -> usize {
+    #[must_use]
+    pub const fn len(&self) -> usize {
         self.len as usize
     }
 
     /// Returns true if there are no data points.
     #[inline]
-    pub fn is_empty(&self) -> bool {
+    #[must_use]
+    pub const fn is_empty(&self) -> bool {
         self.len == 0
     }
 }

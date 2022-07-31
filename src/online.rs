@@ -1,4 +1,3 @@
-#![allow(unconditional_recursion)]
 use std::default::Default;
 use std::fmt;
 use std::iter::{FromIterator, IntoIterator};
@@ -49,32 +48,38 @@ impl OnlineStats {
     /// Create initial state.
     ///
     /// Population size, variance and mean are set to `0`.
+    #[must_use]
     pub fn new() -> OnlineStats {
         Default::default()
     }
 
     /// Initializes variance from a sample.
+    #[must_use]
     pub fn from_slice<T: ToPrimitive>(samples: &[T]) -> OnlineStats {
         samples.iter().map(|n| n.to_f64().unwrap()).collect()
     }
 
     /// Return the current mean.
-    pub fn mean(&self) -> f64 {
+    #[must_use]
+    pub const fn mean(&self) -> f64 {
         self.mean
     }
 
     /// Return the current standard deviation.
+    #[must_use]
     pub fn stddev(&self) -> f64 {
         self.variance().sqrt()
     }
 
     /// Return the current variance.
+    #[must_use]
     pub fn variance(&self) -> f64 {
         self.q / (self.size as f64)
     }
 
     /// Add a new sample.
     #[inline]
+    #[allow(clippy::needless_pass_by_value)]
     pub fn add<T: ToPrimitive>(&mut self, sample: T) {
         let sample = sample.to_f64().unwrap();
         // Taken from: http://goo.gl/JKeqvj
@@ -97,12 +102,15 @@ impl OnlineStats {
 
     /// Returns the number of data points.
     #[inline]
-    pub fn len(&self) -> usize {
+    #[must_use]
+    pub const fn len(&self) -> usize {
         self.size as usize
     }
 
     /// Returns if empty.
-    pub fn is_empty(&self) -> bool {
+    #[inline]
+    #[must_use]
+    pub const fn is_empty(&self) -> bool {
         self.size == 0
     }
 }
@@ -150,7 +158,7 @@ impl<T: ToPrimitive> Extend<T> for OnlineStats {
     #[inline]
     fn extend<I: IntoIterator<Item = T>>(&mut self, it: I) {
         for sample in it {
-            self.add(sample)
+            self.add(sample);
         }
     }
 }
