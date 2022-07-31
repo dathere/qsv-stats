@@ -10,6 +10,7 @@ readme = "README.md"
 keywords = ["statistics", "stats", "median", "mean", "stddev"]
 license  = "MIT OR Unlicense"
 edition = "2021"
+rust-version = "1.62.1"
 
 [lib]
 name = "stats"
