@@ -1,3 +1,4 @@
+#![allow(unconditional_recursion)]
 use std::default::Default;
 use std::fmt;
 use std::iter::{FromIterator, IntoIterator};
