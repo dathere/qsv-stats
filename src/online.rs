@@ -123,7 +123,8 @@ impl Commute for OnlineStats {
         let meandiffsq = (self.mean - v.mean) * (self.mean - v.mean);
 
         self.size += v.size;
-        self.mean = ((s1 * self.mean) + (s2 * v.mean)) / (s1 + s2);
+        // self.mean = ((s1 * self.mean) + (s2 * v.mean)) / (s1 + s2);
+        self.mean = s1.mul_add(self.mean, s2 * v.mean) / (s1 + s2);
         self.q += v.q + meandiffsq * s1 * s2 / (s1 + s2);
     }
 }
