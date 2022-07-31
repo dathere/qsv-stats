@@ -5,8 +5,7 @@ use std::fmt;
 use std::hash::Hash;
 use std::iter::{FromIterator, IntoIterator};
 
-use Commute;
-
+use crate::Commute;
 /// A commutative data structure for exact frequency counts.
 #[derive(Clone)]
 pub struct Frequencies<T> {

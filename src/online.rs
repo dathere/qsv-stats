@@ -4,7 +4,7 @@ use std::iter::{FromIterator, IntoIterator};
 
 use num_traits::ToPrimitive;
 
-use Commute;
+use crate::Commute;
 
 /// Compute the standard deviation of a stream in constant space.
 pub fn stddev<'a, I, T>(x: I) -> f64
@@ -157,7 +157,7 @@ impl<T: ToPrimitive> Extend<T> for OnlineStats {
 #[cfg(test)]
 mod test {
     use super::OnlineStats;
-    use {merge_all, Commute};
+    use {crate::merge_all, crate::Commute};
 
     #[test]
     fn stddev() {

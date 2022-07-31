@@ -180,8 +180,8 @@ mod unsorted;
 
 #[cfg(test)]
 mod test {
-    use unsorted::Unsorted;
-    use Commute;
+    use crate::unsorted::Unsorted;
+    use crate::Commute;
 
     #[test]
     fn options() {

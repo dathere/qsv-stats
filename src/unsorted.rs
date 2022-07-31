@@ -2,7 +2,7 @@ use num_traits::ToPrimitive;
 use std::default::Default;
 use std::iter::{FromIterator, IntoIterator};
 
-use {Commute, Partial};
+use {crate::Commute, crate::Partial};
 
 /// Compute the exact median on a stream of data.
 ///

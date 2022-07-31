@@ -2,7 +2,7 @@ use std::default::Default;
 use std::fmt;
 use std::iter::{FromIterator, IntoIterator};
 
-use Commute;
+use crate::Commute;
 
 /// A commutative data structure for tracking minimum and maximum values.
 ///
@@ -119,7 +119,7 @@ impl<T: PartialOrd + Clone> Extend<T> for MinMax<T> {
 #[cfg(test)]
 mod test {
     use super::MinMax;
-    use Commute;
+    use crate::Commute;
 
     #[test]
     fn minmax() {

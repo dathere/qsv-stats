@@ -4,7 +4,7 @@ use std::iter::{FromIterator, IntoIterator};
 
 use num_traits::ToPrimitive;
 
-use {Commute, Partial};
+use {crate::Commute, crate::Partial};
 
 pub fn median_on_sorted<T>(data: &[T]) -> Option<f64>
         where T: PartialOrd + ToPrimitive {
