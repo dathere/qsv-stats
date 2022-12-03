@@ -118,13 +118,10 @@ pub trait Commute: Sized {
 /// If the stream is empty, `None` is returned.
 #[inline]
 pub fn merge_all<T: Commute, I: Iterator<Item = T>>(mut it: I) -> Option<T> {
-    match it.next() {
-        None => None,
-        Some(mut init) => {
-            init.consume(it);
-            Some(init)
-        }
-    }
+    it.next().map_or_else(|| None, |mut init| {
+        init.consume(it);
+        Some(init)
+    })
 }
 
 impl<T: Commute> Commute for Option<T> {
@@ -146,28 +143,15 @@ impl<T: Commute> Commute for Option<T> {
 impl<T: Commute, E> Commute for Result<T, E> {
     #[inline]
     fn merge(&mut self, other: Result<T, E>) {
-        // Can't figure out how to work around the borrow checker to make
-        // this code less awkward.
         if !self.is_err() && other.is_err() {
             *self = other;
             return;
         }
-        match *self {
-            Err(_) => {}
-            Ok(ref mut v1) => {
-                match other {
-                    Ok(v2) => {
-                        v1.merge(v2);
-                    }
-                    // This is the awkward part. We can't assign to `*self`
-                    // because of the `ref mut v1` borrow. So we catch this
-                    // case above and declare that this cannot be reached.
-                    Err(_) => {
-                        unreachable!();
-                    }
-                }
-            }
-        }
+        self.as_mut().map_or((), |v1| other.map_or_else(|_| {
+            unreachable!();
+        }, |v2| {
+            v1.merge(v2);
+        }));
     }
 }
 
