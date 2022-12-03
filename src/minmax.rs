@@ -94,8 +94,8 @@ impl<T: fmt::Debug> fmt::Debug for MinMax<T> {
     #[inline]
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match (&self.min, &self.max) {
-            (&Some(ref min), &Some(ref max)) => {
-                write!(f, "[{:?}, {:?}]", min, max)
+            (Some(min), Some(max)) => {
+                write!(f, "[{min:?}, {max:?}]")
             }
             (&None, &None) => write!(f, "N/A"),
             _ => unreachable!(),
