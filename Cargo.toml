@@ -1,6 +1,6 @@
 [package]
 name = "qsv-stats"
-version = "0.4.1"  #:version
+version = "0.4.2"  #:version
 authors = ["Joel Natividad <joel@dathere.com>"]
 description = "Experimental crate for computing basic statistics on streams."
 documentation = "https://docs.rs/qsv-stats"
@@ -10,7 +10,7 @@ readme = "README.md"
 keywords = ["statistics", "stats", "median", "mean", "stddev"]
 license  = "MIT OR Unlicense"
 edition = "2021"
-rust-version  = "1.63"
+rust-version  = "1.65"
 
 [lib]
 name = "stats"
