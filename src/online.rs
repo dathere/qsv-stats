@@ -126,8 +126,17 @@ impl Commute for OnlineStats {
         let meandiffsq = (self.mean - v.mean) * (self.mean - v.mean);
 
         self.size += v.size;
-        // self.mean = ((s1 * self.mean) + (s2 * v.mean)) / (s1 + s2);
-        self.mean = s1.mul_add(self.mean, s2 * v.mean) / (s1 + s2);
+        
+        self.mean = ((s1 * self.mean) + (s2 * v.mean)) / (s1 + s2);
+        /*
+        below is the fused multiply add version of the statement above
+        its more performant as we're taking advantage of a CPU instruction
+        but it appears to have issues on macOS per the CI tests
+        and it appears that clippy::suboptimal_flops lint that suggested
+        this made a false-positive recommendation
+        https://github.com/rust-lang/rust-clippy/issues/10003 */
+        //self.mean = s1.mul_add(self.mean, s2 * v.mean) / (s1 + s2);
+        
         self.q += v.q + meandiffsq * s1 * s2 / (s1 + s2);
     }
 }
