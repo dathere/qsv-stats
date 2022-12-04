@@ -41,7 +41,7 @@ where
 pub struct OnlineStats {
     size: u64,
     mean: f64,
-    q: f64,
+    variance: f64,
 }
 
 impl OnlineStats {
@@ -71,13 +71,13 @@ impl OnlineStats {
     /// Return the current standard deviation.
     #[must_use]
     pub fn stddev(&self) -> f64 {
-        self.variance().sqrt()
+        self.variance.sqrt()
     }
 
     /// Return the current variance.
     #[must_use]
-    pub fn variance(&self) -> f64 {
-        self.q / (self.size as f64)
+    pub const fn variance(&self) -> f64 {
+        self.variance
     }
 
     /// Add a new sample.
@@ -88,11 +88,15 @@ impl OnlineStats {
         // Taken from: http://goo.gl/JKeqvj
         // See also: http://goo.gl/qTtI3V
         let oldmean = self.mean;
+        let prevq = self.variance * (self.size as f64);
+
         self.size += 1;
-        let delta = sample - oldmean;
-        self.mean += delta / (self.size as f64);
-        let delta2 = sample - self.mean;
-        self.q += delta * delta2;
+        self.mean += (sample - oldmean) / (self.size as f64);
+
+        // use fused multiply add
+        // self.variance = (prevq + (sample - oldmean) * (sample - self.mean)) / (self.size as f64);
+        self.variance = (sample - oldmean).mul_add(sample - self.mean, prevq) / (self.size as f64);
+
     }
 
     /// Add a new NULL value to the population.
@@ -125,19 +129,19 @@ impl Commute for OnlineStats {
         let (s1, s2) = (self.size as f64, v.size as f64);
         let meandiffsq = (self.mean - v.mean) * (self.mean - v.mean);
 
+        // use fused multiply add
+        // let mean = ((s1 * self.mean) + (s2 * v.mean)) / (s1 + s2);
+        let mean = s1.mul_add(self.mean, s2 * v.mean) / (s1 + s2);
+
+        // use fused multiply add
+        // let var = (((s1 * self.variance) + (s2 * v.variance))
+        let var = (s1.mul_add(self.variance, s2 * v.variance)
+                    / (s1 + s2))
+                   +
+                   ((s1 * s2 * meandiffsq) / ((s1 + s2) * (s1 + s2)));
         self.size += v.size;
-        
-        self.mean = ((s1 * self.mean) + (s2 * v.mean)) / (s1 + s2);
-        /*
-        below is the fused multiply add version of the statement above
-        its more performant as we're taking advantage of a CPU instruction
-        but it appears to have issues on macOS per the CI tests
-        and it appears that clippy::suboptimal_flops lint that suggested
-        this made a false-positive recommendation
-        https://github.com/rust-lang/rust-clippy/issues/10003 */
-        //self.mean = s1.mul_add(self.mean, s2 * v.mean) / (s1 + s2);
-        
-        self.q += v.q + meandiffsq * s1 * s2 / (s1 + s2);
+        self.mean = mean;
+        self.variance = var;
     }
 }
 
@@ -146,7 +150,7 @@ impl Default for OnlineStats {
         OnlineStats {
             size: 0,
             mean: 0.0,
-            q: 0.0,
+            variance: 0.0,
         }
     }
 }
