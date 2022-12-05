@@ -82,6 +82,28 @@ impl OnlineStats {
 
     /// Add a new sample.
     #[inline]
+    #[cfg(target_os = "macos")]
+    #[allow(clippy::needless_pass_by_value)]
+    pub fn add<T: ToPrimitive>(&mut self, sample: T) {
+        let sample = unsafe { sample.to_f64().unwrap_unchecked() };
+        // Taken from: http://goo.gl/JKeqvj
+        // See also: http://goo.gl/qTtI3V
+        let oldmean = self.mean;
+        let prevq = self.variance * (self.size as f64);
+
+        self.size += 1;
+        self.mean += (sample - oldmean) / (self.size as f64);
+
+        // DO NOT use fused multiply add
+        // it seems fused multiply add has some problems on Apple Silicon
+        // https://eclecticlight.co/2021/07/19/are-there-flaws-in-some-arm64-instructions/
+        self.variance = (prevq + (sample - oldmean) * (sample - self.mean)) / (self.size as f64);
+        // self.variance = (sample - oldmean).mul_add(sample - self.mean, prevq) / (self.size as f64);
+
+    }
+
+    #[inline]
+    #[cfg(not(target_os = "macos"))]
     #[allow(clippy::needless_pass_by_value)]
     pub fn add<T: ToPrimitive>(&mut self, sample: T) {
         let sample = unsafe { sample.to_f64().unwrap_unchecked() };
@@ -124,6 +146,29 @@ impl OnlineStats {
 
 impl Commute for OnlineStats {
     #[inline]
+    #[cfg(target_os = "macos")]
+    fn merge(&mut self, v: OnlineStats) {
+        // Taken from: http://goo.gl/iODi28
+        let (s1, s2) = (self.size as f64, v.size as f64);
+        let meandiffsq = (self.mean - v.mean) * (self.mean - v.mean);
+
+        // DO NOT use fused multiply add
+        let mean = ((s1 * self.mean) + (s2 * v.mean)) / (s1 + s2);
+        // let mean = s1.mul_add(self.mean, s2 * v.mean) / (s1 + s2);
+
+        // DO NOT use fused multiply add
+        // let var = (s1.mul_add(self.variance, s2 * v.variance)
+        let var = (((s1 * self.variance) + (s2 * v.variance))
+                    / (s1 + s2))
+                   +
+                   ((s1 * s2 * meandiffsq) / ((s1 + s2) * (s1 + s2)));
+        self.size += v.size;
+        self.mean = mean;
+        self.variance = var;
+    }
+
+    #[inline]
+    #[cfg(not(target_os = "macos"))]
     fn merge(&mut self, v: OnlineStats) {
         // Taken from: http://goo.gl/iODi28
         let (s1, s2) = (self.size as f64, v.size as f64);
