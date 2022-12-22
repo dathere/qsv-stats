@@ -118,10 +118,13 @@ pub trait Commute: Sized {
 /// If the stream is empty, `None` is returned.
 #[inline]
 pub fn merge_all<T: Commute, I: Iterator<Item = T>>(mut it: I) -> Option<T> {
-    it.next().map_or_else(|| None, |mut init| {
-        init.consume(it);
-        Some(init)
-    })
+    it.next().map_or_else(
+        || None,
+        |mut init| {
+            init.consume(it);
+            Some(init)
+        },
+    )
 }
 
 impl<T: Commute> Commute for Option<T> {
@@ -147,11 +150,16 @@ impl<T: Commute, E> Commute for Result<T, E> {
             *self = other;
             return;
         }
-        self.as_mut().map_or((), |v1| other.map_or_else(|_| {
-            unreachable!();
-        }, |v2| {
-            v1.merge(v2);
-        }));
+        self.as_mut().map_or((), |v1| {
+            other.map_or_else(
+                |_| {
+                    unreachable!();
+                },
+                |v2| {
+                    v1.merge(v2);
+                },
+            )
+        });
     }
 }
 
