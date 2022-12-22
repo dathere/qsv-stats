@@ -85,8 +85,8 @@ impl OnlineStats {
     #[allow(clippy::needless_pass_by_value)]
     pub fn add<T: ToPrimitive>(&mut self, sample: T) {
         let sample = unsafe { sample.to_f64().unwrap_unchecked() };
-        // Taken from: http://goo.gl/JKeqvj
-        // See also: http://goo.gl/qTtI3V
+        // Taken from: https://en.wikipedia.org/wiki/Standard_deviation#Rapid_calculation_methods
+        // See also: https://api.semanticscholar.org/CorpusID:120126049
         let oldmean = self.mean;
         self.size += 1;
         let delta = sample - oldmean;
@@ -121,21 +121,22 @@ impl OnlineStats {
 impl Commute for OnlineStats {
     #[inline]
     fn merge(&mut self, v: OnlineStats) {
-        // Taken from: http://goo.gl/iODi28
+        // Taken from: https://en.wikipedia.org/wiki/Standard_deviation#Combining_standard_deviations
         let (s1, s2) = (self.size as f64, v.size as f64);
         let meandiffsq = (self.mean - v.mean) * (self.mean - v.mean);
 
         self.size += v.size;
         
-        self.mean = ((s1 * self.mean) + (s2 * v.mean)) / (s1 + s2);
+        //self.mean = ((s1 * self.mean) + (s2 * v.mean)) / (s1 + s2);
         /*
         below is the fused multiply add version of the statement above
         its more performant as we're taking advantage of a CPU instruction
-        but it appears to have issues on macOS per the CI tests
+        Note that fma appears to have issues on macOS per the flaky CI tests
         and it appears that clippy::suboptimal_flops lint that suggested
         this made a false-positive recommendation
-        https://github.com/rust-lang/rust-clippy/issues/10003 */
-        //self.mean = s1.mul_add(self.mean, s2 * v.mean) / (s1 + s2);
+        https://github.com/rust-lang/rust-clippy/issues/10003 
+        leaving on for now, as qsv is primarily optimized for Linux targets */
+        self.mean = s1.mul_add(self.mean, s2 * v.mean) / (s1 + s2);
         
         self.q += v.q + meandiffsq * s1 * s2 / (s1 + s2);
     }
