@@ -75,10 +75,15 @@ impl OnlineStats {
     }
 
     /// Return the current variance.
+    // TODO: look into alternate algorithms for calculating variance
+    // https://en.wikipedia.org/wiki/Algorithms_for_calculating_variance
     #[must_use]
     pub fn variance(&self) -> f64 {
         self.q / (self.size as f64)
     }
+
+    // TODO: Calculate kurtosis
+    // also see https://en.wikipedia.org/wiki/Algorithms_for_calculating_variance
 
     /// Add a new sample.
     #[inline]
