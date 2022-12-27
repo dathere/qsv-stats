@@ -13,10 +13,10 @@ use num_traits::ToPrimitive;
 use std::cmp::Ordering;
 use std::hash;
 
-pub use frequency::Frequencies;
+pub use frequency::{Frequencies, UniqueValues};
 pub use minmax::MinMax;
 pub use online::{mean, stddev, variance, OnlineStats};
-pub use unsorted::{median, mode, modes, quartiles, Unsorted};
+pub use unsorted::{antimodes, median, mode, modes, quartiles, Unsorted};
 
 /// Partial wraps a type that satisfies `PartialOrd` and implements `Ord`.
 ///
@@ -158,7 +158,7 @@ impl<T: Commute, E> Commute for Result<T, E> {
                 |v2| {
                     v1.merge(v2);
                 },
-            )
+            );
         });
     }
 }
