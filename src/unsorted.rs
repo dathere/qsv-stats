@@ -42,7 +42,7 @@ where
 /// Compute the modes on a stream of data.
 ///
 /// If there is a single mode, then only that value is returned in the `Vec`
-/// however, if there multiple values tied for occuring the most amount of times
+/// however, if there are multiple values tied for occurring the most amount of times
 /// those values are returned.
 ///
 /// ## Example
@@ -51,17 +51,54 @@ where
 ///
 /// let vals = vec![1, 1, 2, 2, 3];
 ///
-/// assert_eq!(stats::modes(vals.into_iter()), vec![1, 2]);
+/// assert_eq!(stats::modes(vals.into_iter()), (vec![1, 2], 2));
 /// ```
 /// This has time complexity `O(n)`
 ///
 /// If the data does not have a mode, then an empty `Vec` is returned.
-pub fn modes<T, I>(it: I) -> Vec<T>
+pub fn modes<T, I>(it: I) -> (Vec<T>, u32)
 where
     T: PartialOrd + Clone,
     I: Iterator<Item = T>,
 {
     it.collect::<Unsorted<T>>().modes()
+}
+
+/// Compute the antimodes on a stream of data.
+///
+/// Antimode is the least frequent non-zero score.
+///
+/// If there is a single antimode, then only that value is returned in the `Vec`
+/// however, if there are multiple values tied for occurring the least amount of times
+/// those values are returned.
+///
+/// Only the first 10 antimodes are returned to prevent returning the whole set
+/// when cardinality = number of records (i.e. all unique values).
+///
+/// ## Example
+/// ```
+/// use stats;
+///
+/// let vals = vec![1, 1, 2, 2, 3];
+///
+/// assert_eq!(stats::antimodes(vals.into_iter()), (vec![3], 1, 1));
+/// ```
+/// This has time complexity `O(n)`
+///
+/// If the data does not have an antimode, then an empty `Vec` is returned.
+pub fn antimodes<T, I>(it: I) -> (Vec<T>, usize, u32)
+where
+    T: PartialOrd + Clone,
+    I: Iterator<Item = T>,
+{
+    let (antimodes_result, antimodes_count, antimodes_occurences) =
+        it.collect::<Unsorted<T>>().antimodes();
+    let antimodes_preview = if antimodes_count > 10 {
+        antimodes_result[..10].to_vec()
+    } else {
+        antimodes_result
+    };
+    (antimodes_preview, antimodes_count, antimodes_occurences)
 }
 
 fn median_on_sorted<T>(data: &[T]) -> Option<f64>
@@ -201,14 +238,15 @@ where
     mode
 }
 
-fn modes_on_sorted<T, I>(it: I) -> Vec<T>
+fn modes_on_sorted<T, I>(it: I, size: usize) -> (Vec<T>, u32)
 where
     T: PartialOrd,
     I: Iterator<Item = T>,
 {
-    let mut highest_mode = 1_u32;
-    let mut modes: Vec<u32> = vec![];
-    let mut values = vec![];
+    let mut highest_mode = 0_u32;
+    // to do some prealloc without taking up to much memory
+    let mut modes: Vec<u32> = Vec::with_capacity(usize::min(size / 3, 10_000));
+    let mut values = Vec::with_capacity(usize::min(size / 3, 10_000));
     let mut count = 0;
     for x in it {
         if values.is_empty() {
@@ -227,12 +265,57 @@ where
             count += 1;
         }
     }
-    modes
+    let modes_result = modes
         .into_iter()
         .zip(values)
         .filter(|(cnt, _val)| *cnt == highest_mode && highest_mode > 1)
         .map(|(_, val)| val)
-        .collect()
+        .collect();
+
+    (modes_result, highest_mode)
+}
+
+fn antimodes_on_sorted<T, I>(it: I, size: usize) -> (Vec<T>, u32)
+where
+    T: PartialOrd,
+    I: Iterator<Item = T>,
+{
+    let mut lowest_mode = u32::MAX;
+    // to do some prealloc, without taking up too much memory
+    let mut modes: Vec<u32> = Vec::with_capacity(usize::min(size / 3, 10_000));
+    let mut values = Vec::with_capacity(usize::min(size / 3, 10_000));
+    let mut count = 0;
+    for x in it {
+        if values.is_empty() {
+            values.push(x);
+            modes.push(1);
+            continue;
+        }
+        if x == values[count] {
+            modes[count] += 1;
+        } else {
+            values.push(x);
+            modes.push(1);
+            if lowest_mode > modes[count] {
+                lowest_mode = modes[count];
+            }
+            count += 1;
+        }
+    }
+    if count > 0 && lowest_mode > modes[count] {
+        lowest_mode = modes[count];
+    }
+    let antimodes_result = modes
+        .into_iter()
+        .zip(values)
+        .filter(|(cnt, _val)| *cnt == lowest_mode && lowest_mode < u32::MAX)
+        .map(|(_, val)| val)
+        .collect();
+
+    if lowest_mode == u32::MAX {
+        lowest_mode = 0;
+    }
+    (antimodes_result, lowest_mode)
 }
 
 /// A commutative data structure for lazily sorted sequences of data.
@@ -281,6 +364,7 @@ impl<T: PartialOrd> Unsorted<T> {
     fn sort(&mut self) {
         if !self.sorted {
             self.data.sort_unstable();
+            self.sorted = true;
         }
     }
 
@@ -310,12 +394,21 @@ impl<T: PartialOrd + Clone> Unsorted<T> {
 
     /// Returns the modes of the data.
     #[inline]
-    pub fn modes(&mut self) -> Vec<T> {
+    pub fn modes(&mut self) -> (Vec<T>, u32) {
         self.sort();
-        modes_on_sorted(self.data.iter())
-            .into_iter()
-            .map(|p| p.0.clone())
-            .collect()
+        let (modes_vec, occurrences) = modes_on_sorted(self.data.iter(), self.len());
+        let modes_result = modes_vec.into_iter().map(|p| p.0.clone()).collect();
+        (modes_result, occurrences)
+    }
+
+    /// Returns the antimodes of the data.
+    #[inline]
+    pub fn antimodes(&mut self) -> (Vec<T>, usize, u32) {
+        self.sort();
+        let (antimodes_vec, occurences) = antimodes_on_sorted(self.data.iter(), self.len());
+        let antimodes_result: Vec<T> = antimodes_vec.into_iter().map(|p| p.0.clone()).collect();
+        let antimodes_count = antimodes_result.len();
+        (antimodes_result, antimodes_count, occurences)
     }
 }
 
@@ -374,7 +467,7 @@ impl<T: PartialOrd> Extend<T> for Unsorted<T> {
 
 #[cfg(test)]
 mod test {
-    use super::{median, mode, modes, quartiles};
+    use super::{antimodes, median, mode, modes, quartiles};
 
     #[test]
     fn median_stream() {
@@ -409,26 +502,103 @@ mod test {
 
     #[test]
     fn modes_stream() {
-        assert_eq!(modes(vec![3usize, 5, 7, 9].into_iter()), vec![]);
-        assert_eq!(modes(vec![3usize, 3, 3, 3].into_iter()), vec![3]);
-        assert_eq!(modes(vec![3usize, 3, 4, 4].into_iter()), vec![3, 4]);
-        assert_eq!(modes(vec![4usize, 3, 3, 3].into_iter()), vec![3]);
-        assert_eq!(modes(vec![1usize, 1, 2, 2].into_iter()), vec![1, 2]);
+        assert_eq!(modes(vec![3usize, 5, 7, 9].into_iter()), (vec![], 0));
+        assert_eq!(modes(vec![3usize, 3, 3, 3].into_iter()), (vec![3], 4));
+        assert_eq!(modes(vec![3usize, 3, 4, 4].into_iter()), (vec![3, 4], 2));
+        assert_eq!(modes(vec![4usize, 3, 3, 3].into_iter()), (vec![3], 3));
+        assert_eq!(modes(vec![1usize, 1, 2, 2].into_iter()), (vec![1, 2], 2));
         let vec: Vec<u32> = vec![];
-        assert_eq!(modes(vec.into_iter()), vec![]);
+        assert_eq!(modes(vec.into_iter()), (vec![], 0));
     }
 
     #[test]
     fn modes_floats() {
-        assert_eq!(modes(vec![3_f64, 5.0, 7.0, 9.0].into_iter()), vec![]);
-        assert_eq!(modes(vec![3_f64, 3.0, 3.0, 3.0].into_iter()), vec![3.0]);
+        assert_eq!(modes(vec![3_f64, 5.0, 7.0, 9.0].into_iter()), (vec![], 0));
+        assert_eq!(
+            modes(vec![3_f64, 3.0, 3.0, 3.0].into_iter()),
+            (vec![3.0], 4)
+        );
         assert_eq!(
             modes(vec![3_f64, 3.0, 4.0, 4.0].into_iter()),
-            vec![3.0, 4.0]
+            (vec![3.0, 4.0], 2)
         );
         assert_eq!(
             modes(vec![1_f64, 1.0, 2.0, 3.0, 3.0].into_iter()),
-            vec![1.0, 3.0]
+            (vec![1.0, 3.0], 2)
+        );
+    }
+
+    #[test]
+    fn antimodes_stream() {
+        assert_eq!(
+            antimodes(vec![3usize, 5, 7, 9].into_iter()),
+            (vec![3, 5, 7, 9], 4, 1)
+        );
+        assert_eq!(
+            antimodes(vec![1usize, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13].into_iter()),
+            (vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10], 13, 1)
+        );
+        assert_eq!(
+            antimodes(vec![1usize, 3, 3, 3].into_iter()),
+            (vec![1], 1, 1)
+        );
+        assert_eq!(
+            antimodes(vec![3usize, 3, 4, 4].into_iter()),
+            (vec![3, 4], 2, 2)
+        );
+        assert_eq!(
+            antimodes(
+                vec![
+                    3usize, 3, 4, 4, 5, 5, 6, 6, 7, 7, 8, 8, 9, 9, 10, 10, 11, 11, 12, 12, 13, 13,
+                    14, 14, 15, 15
+                ]
+                .into_iter()
+            ),
+            (vec![3, 4, 5, 6, 7, 8, 9, 10, 11, 12], 13, 2)
+        );
+        assert_eq!(
+            antimodes(
+                vec![
+                    3usize, 3, 8, 8, 9, 9, 10, 10, 11, 11, 12, 12, 4, 4, 5, 5, 6, 6, 7, 7, 13, 13,
+                    14, 14, 15, 15
+                ]
+                .into_iter()
+            ),
+            (vec![3, 4, 5, 6, 7, 8, 9, 10, 11, 12], 13, 2)
+        );
+        assert_eq!(
+            antimodes(vec![3usize, 3, 3, 4].into_iter()),
+            (vec![4], 1, 1)
+        );
+        assert_eq!(
+            antimodes(vec![4usize, 3, 3, 3].into_iter()),
+            (vec![4], 1, 1)
+        );
+        assert_eq!(
+            antimodes(vec![1usize, 1, 2, 2].into_iter()),
+            (vec![1, 2], 2, 2)
+        );
+        let vec: Vec<u32> = vec![];
+        assert_eq!(antimodes(vec.into_iter()), (vec![], 0, 0));
+    }
+
+    #[test]
+    fn antimodes_floats() {
+        assert_eq!(
+            antimodes(vec![3_f64, 5.0, 7.0, 9.0].into_iter()),
+            (vec![3.0, 5.0, 7.0, 9.0], 4, 1)
+        );
+        assert_eq!(
+            antimodes(vec![3_f64, 3.0, 3.0, 3.0].into_iter()),
+            (vec![], 0, 0)
+        );
+        assert_eq!(
+            antimodes(vec![3_f64, 3.0, 4.0, 4.0].into_iter()),
+            (vec![3.0, 4.0], 2, 2)
+        );
+        assert_eq!(
+            antimodes(vec![1_f64, 1.0, 2.0, 3.0, 3.0].into_iter()),
+            (vec![2.0], 1, 1)
         );
     }
 
