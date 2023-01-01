@@ -188,7 +188,7 @@ mod test {
     use {crate::merge_all, crate::Commute};
 
     #[test]
-    fn stddev() {
+    fn online() {
         // TODO: Convert this to a quickcheck test.
         let expected = OnlineStats::from_slice(&[1usize, 2, 3, 2, 4, 6]);
 
@@ -197,16 +197,19 @@ mod test {
         let mut got = var1;
         got.merge(var2);
         assert_eq!(expected.stddev(), got.stddev());
+        assert_eq!(expected.mean(), got.mean());
+        assert_eq!(expected.variance(), got.variance());
+
     }
 
     #[test]
-    fn stddev_empty() {
+    fn online_empty() {
         let expected = OnlineStats::new();
         assert!(expected.is_empty());
     }
 
     #[test]
-    fn stddev_many() {
+    fn online_many() {
         // TODO: Convert this to a quickcheck test.
         let expected = OnlineStats::from_slice(&[1usize, 2, 3, 2, 4, 6, 3, 6, 9]);
 
@@ -217,7 +220,15 @@ mod test {
         ];
         assert_eq!(
             expected.stddev(),
-            merge_all(vars.into_iter()).unwrap().stddev()
+            merge_all(vars.clone().into_iter()).unwrap().stddev()
+        );
+        assert_eq!(
+            expected.mean(),
+            merge_all(vars.clone().into_iter()).unwrap().mean()
+        );
+        assert_eq!(
+            expected.variance(),
+            merge_all(vars.into_iter()).unwrap().variance()
         );
     }
 }
