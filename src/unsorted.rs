@@ -349,16 +349,10 @@ impl<T: PartialOrd> Unsorted<T> {
     /// Return the number of data points.
     #[inline]
     #[must_use]
+    #[allow(clippy::len_without_is_empty)]
     pub fn len(&self) -> usize {
         self.data.len()
     }
-
-    // /// Return true if empty.
-    // #[inline]
-    // #[must_use]
-    // pub fn is_empty(&self) -> bool {
-    //     self.data.is_empty()
-    // }
 
     #[inline]
     fn sort(&mut self) {
@@ -368,7 +362,7 @@ impl<T: PartialOrd> Unsorted<T> {
         }
     }
 
-    #[inline]
+    #[inline(always)]
     fn dirtied(&mut self) {
         self.sorted = false;
     }
