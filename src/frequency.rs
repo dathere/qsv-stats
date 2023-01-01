@@ -178,9 +178,9 @@ mod test {
 
     #[test]
     fn unique_values() {
-        let freqs = Frequencies::from_iter(vec![1, 1, 2, 2, 2, 3, 4, 4, 4]);
+        let freqs = Frequencies::from_iter(vec![8, 6, 5, 1, 1, 2, 2, 2, 3, 4, 7, 4, 4]);
         let mut unique: Vec<isize> = freqs.unique_values().copied().collect();
-        unique.sort();
-        assert_eq!(unique, vec![1, 2, 3, 4]);
+        unique.sort_unstable();
+        assert_eq!(unique, vec![1, 2, 3, 4, 5, 6, 7, 8]);
     }
 }
