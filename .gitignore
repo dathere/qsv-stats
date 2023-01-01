@@ -6,3 +6,4 @@ build
 target
 Cargo.lock
 scratch*
+.DS_Store
