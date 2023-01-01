@@ -199,7 +199,6 @@ mod test {
         assert_eq!(expected.stddev(), got.stddev());
         assert_eq!(expected.mean(), got.mean());
         assert_eq!(expected.variance(), got.variance());
-
     }
 
     #[test]
