@@ -232,7 +232,7 @@ where
             next_count = 0;
         } else if next_count == mode_count {
             mode = None;
-            mode_count = 0usize;
+            mode_count = 0;
         }
     }
     mode
@@ -353,12 +353,12 @@ impl<T: PartialOrd> Unsorted<T> {
         self.data.len()
     }
 
-    /// Return true if empty.
-    #[inline]
-    #[must_use]
-    pub fn is_empty(&self) -> bool {
-        self.data.is_empty()
-    }
+    // /// Return true if empty.
+    // #[inline]
+    // #[must_use]
+    // pub fn is_empty(&self) -> bool {
+    //     self.data.is_empty()
+    // }
 
     #[inline]
     fn sort(&mut self) {
