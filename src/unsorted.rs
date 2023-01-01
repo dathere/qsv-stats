@@ -91,14 +91,14 @@ where
     T: PartialOrd + Clone,
     I: Iterator<Item = T>,
 {
-    let (antimodes_result, antimodes_count, antimodes_occurences) =
+    let (antimodes_result, antimodes_count, antimodes_occurrences) =
         it.collect::<Unsorted<T>>().antimodes();
     let antimodes_preview = if antimodes_count > 10 {
         antimodes_result[..10].to_vec()
     } else {
         antimodes_result
     };
-    (antimodes_preview, antimodes_count, antimodes_occurences)
+    (antimodes_preview, antimodes_count, antimodes_occurrences)
 }
 
 fn median_on_sorted<T>(data: &[T]) -> Option<f64>
@@ -405,10 +405,10 @@ impl<T: PartialOrd + Clone> Unsorted<T> {
     #[inline]
     pub fn antimodes(&mut self) -> (Vec<T>, usize, u32) {
         self.sort();
-        let (antimodes_vec, occurences) = antimodes_on_sorted(self.data.iter(), self.len());
+        let (antimodes_vec, occurrences) = antimodes_on_sorted(self.data.iter(), self.len());
         let antimodes_result: Vec<T> = antimodes_vec.into_iter().map(|p| p.0.clone()).collect();
         let antimodes_count = antimodes_result.len();
-        (antimodes_result, antimodes_count, occurences)
+        (antimodes_result, antimodes_count, occurrences)
     }
 }
 
@@ -554,6 +554,7 @@ mod test {
                 ]
                 .into_iter()
             ),
+            // we only show the first 10 of the 13 antimodes
             (vec![3, 4, 5, 6, 7, 8, 9, 10, 11, 12], 13, 2)
         );
         assert_eq!(
