@@ -265,7 +265,7 @@ where
             count += 1;
         }
     }
-    let modes_result :Vec<T>= modes
+    let modes_result: Vec<T> = modes
         .into_iter()
         .zip(values)
         .filter(|(cnt, _val)| *cnt == highest_mode && highest_mode > 1)
@@ -515,7 +515,10 @@ mod test {
 
     #[test]
     fn modes_floats() {
-        assert_eq!(modes(vec![3_f64, 5.0, 7.0, 9.0].into_iter()), (vec![], 0, 0));
+        assert_eq!(
+            modes(vec![3_f64, 5.0, 7.0, 9.0].into_iter()),
+            (vec![], 0, 0)
+        );
         assert_eq!(
             modes(vec![3_f64, 3.0, 3.0, 3.0].into_iter()),
             (vec![3.0], 1, 4)
