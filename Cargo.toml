@@ -1,8 +1,8 @@
 [package]
 name = "qsv-stats"
-version = "0.5.3"  #:version
+version = "0.6.0"  #:version
 authors = ["Joel Natividad <joel@dathere.com>"]
-description = "Computing descriptive statistics on streams."
+description = "Computing summary statistics on streams."
 documentation = "https://docs.rs/qsv-stats"
 homepage = "https://github.com/jqnatividad/rust-stats"
 repository = "https://github.com/jqnatividad/rust-stats"
