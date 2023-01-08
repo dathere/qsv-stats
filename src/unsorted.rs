@@ -15,6 +15,15 @@ where
     it.collect::<Unsorted<_>>().median()
 }
 
+/// Compute the median absolute deviation (MAD) on a stream of data.
+pub fn mad<I>(it: I) -> Option<f64>
+where
+    I: Iterator,
+    <I as Iterator>::Item: PartialOrd + ToPrimitive,
+{
+    it.collect::<Unsorted<_>>().mad()
+}
+
 /// Compute the exact 1-, 2-, and 3-quartiles (Q1, Q2 a.k.a. median, and Q3) on a stream of data.
 ///
 /// (This has time complexity `O(nlogn)` and space complexity `O(n)`.)
@@ -118,6 +127,24 @@ where
         },
         len => unsafe { data.get_unchecked(len / 2).to_f64().unwrap_unchecked() },
     })
+}
+
+fn mad_on_sorted<T>(data: &[T]) -> Option<f64>
+where
+    T: PartialOrd + ToPrimitive,
+{
+    let Some(median_obs ) = median_on_sorted(data) else {
+        return None;
+    };
+    let mut abs_diff_vec: Vec<f64> = Vec::with_capacity(data.len());
+    for x in data {
+        unsafe {
+            let val: f64 = x.to_f64().unwrap_unchecked();
+            abs_diff_vec.push((median_obs - val).abs());
+        }
+    }
+    abs_diff_vec.sort_unstable_by(|a, b| a.partial_cmp(b).unwrap());
+    median_on_sorted(&abs_diff_vec)
 }
 
 fn quartiles_on_sorted<T>(data: &[T]) -> Option<(f64, f64, f64)>
@@ -424,6 +451,15 @@ impl<T: PartialOrd + ToPrimitive> Unsorted<T> {
 }
 
 impl<T: PartialOrd + ToPrimitive> Unsorted<T> {
+    /// Returns the MAD of the data.
+    #[inline]
+    pub fn mad(&mut self) -> Option<f64> {
+        self.sort();
+        mad_on_sorted(&self.data)
+    }
+}
+
+impl<T: PartialOrd + ToPrimitive> Unsorted<T> {
     /// Returns the quartiles of the data.
     #[inline]
     pub fn quartiles(&mut self) -> Option<(f64, f64, f64)> {
@@ -469,12 +505,25 @@ impl<T: PartialOrd> Extend<T> for Unsorted<T> {
 
 #[cfg(test)]
 mod test {
-    use super::{antimodes, median, mode, modes, quartiles};
+    use super::{antimodes, mad, median, mode, modes, quartiles};
 
     #[test]
     fn median_stream() {
         assert_eq!(median(vec![3usize, 5, 7, 9].into_iter()), Some(6.0));
         assert_eq!(median(vec![3usize, 5, 7].into_iter()), Some(5.0));
+    }
+
+    #[test]
+    fn mad_stream() {
+        assert_eq!(mad(vec![3usize, 5, 7, 9].into_iter()), Some(2.0));
+        assert_eq!(
+            mad(vec![
+                86usize, 60, 95, 39, 49, 12, 56, 82, 92, 24, 33, 28, 46, 34, 100, 39, 100, 38, 50,
+                61, 39, 88, 5, 13, 64
+            ]
+            .into_iter()),
+            Some(16.0)
+        );
     }
 
     #[test]

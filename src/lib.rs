@@ -16,7 +16,7 @@ use std::hash;
 pub use frequency::{Frequencies, UniqueValues};
 pub use minmax::MinMax;
 pub use online::{mean, stddev, variance, OnlineStats};
-pub use unsorted::{antimodes, median, mode, modes, quartiles, Unsorted};
+pub use unsorted::{antimodes, mad, median, mode, modes, quartiles, Unsorted};
 
 /// Partial wraps a type that satisfies `PartialOrd` and implements `Ord`.
 ///
