@@ -16,12 +16,12 @@ where
 }
 
 /// Compute the median absolute deviation (MAD) on a stream of data.
-pub fn mad<I>(it: I) -> Option<f64>
+pub fn mad<I>(it: I, precalc_median: Option<f64>) -> Option<f64>
 where
     I: Iterator,
     <I as Iterator>::Item: PartialOrd + ToPrimitive,
 {
-    it.collect::<Unsorted<_>>().mad()
+    it.collect::<Unsorted<_>>().mad(precalc_median)
 }
 
 /// Compute the exact 1-, 2-, and 3-quartiles (Q1, Q2 a.k.a. median, and Q3) on a stream of data.
@@ -129,13 +129,16 @@ where
     })
 }
 
-fn mad_on_sorted<T>(data: &[T]) -> Option<f64>
+fn mad_on_sorted<T>(data: &[T], precalc_median: Option<f64>) -> Option<f64>
 where
     T: PartialOrd + ToPrimitive,
 {
-    let Some(median_obs ) = median_on_sorted(data) else {
+    if data.is_empty() {
         return None;
-    };
+    }
+    let median_obs =
+        precalc_median.map_or_else(|| median_on_sorted(data).unwrap(), |precalc| precalc);
+
     let mut abs_diff_vec: Vec<f64> = Vec::with_capacity(data.len());
     for x in data {
         unsafe {
@@ -453,9 +456,11 @@ impl<T: PartialOrd + ToPrimitive> Unsorted<T> {
 impl<T: PartialOrd + ToPrimitive> Unsorted<T> {
     /// Returns the MAD of the data.
     #[inline]
-    pub fn mad(&mut self) -> Option<f64> {
-        self.sort();
-        mad_on_sorted(&self.data)
+    pub fn mad(&mut self, existing_median: Option<f64>) -> Option<f64> {
+        if existing_median.is_none() {
+            self.sort();
+        }
+        mad_on_sorted(&self.data, existing_median)
     }
 }
 
@@ -515,15 +520,33 @@ mod test {
 
     #[test]
     fn mad_stream() {
-        assert_eq!(mad(vec![3usize, 5, 7, 9].into_iter()), Some(2.0));
+        assert_eq!(mad(vec![3usize, 5, 7, 9].into_iter(), None), Some(2.0));
         assert_eq!(
-            mad(vec![
-                86usize, 60, 95, 39, 49, 12, 56, 82, 92, 24, 33, 28, 46, 34, 100, 39, 100, 38, 50,
-                61, 39, 88, 5, 13, 64
-            ]
-            .into_iter()),
+            mad(
+                vec![
+                    86usize, 60, 95, 39, 49, 12, 56, 82, 92, 24, 33, 28, 46, 34, 100, 39, 100, 38,
+                    50, 61, 39, 88, 5, 13, 64
+                ]
+                .into_iter(),
+                None
+            ),
             Some(16.0)
         );
+    }
+
+    #[test]
+    fn mad_stream_precalc_median() {
+        let data = vec![3usize, 5, 7, 9].into_iter();
+        let median1 = median(data.clone());
+        assert_eq!(mad(data, median1), Some(2.0));
+
+        let data2 = vec![
+            86usize, 60, 95, 39, 49, 12, 56, 82, 92, 24, 33, 28, 46, 34, 100, 39, 100, 38, 50, 61,
+            39, 88, 5, 13, 64,
+        ]
+        .into_iter();
+        let median2 = median(data2.clone());
+        assert_eq!(mad(data2, median2), Some(16.0));
     }
 
     #[test]
