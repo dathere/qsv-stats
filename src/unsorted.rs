@@ -337,16 +337,25 @@ where
     if count > 0 && lowest_mode > modes[count] {
         lowest_mode = modes[count];
     }
-    let mut antimodes_result: Vec<T> = modes
+
+    let mut antimodes_result: Vec<T> = Vec::with_capacity(10);
+    let mut antimodes_result_ctr: u8 = 0;
+
+    let antimodes_count = modes
         .into_iter()
         .zip(values)
         .filter(|(cnt, _val)| *cnt == lowest_mode && lowest_mode < u32::MAX)
-        .map(|(_, val)| val)
-        .collect();
-
-    let antimodes_count = antimodes_result.len();
-    // we only need the first 10 anyway, so truncate
-    antimodes_result.truncate(10);
+        .map(|(_, val)| {
+            // we only keep the first 10 antimodes and we do this as we do not want to store
+            // antimode values more than 10 we'll throw away immediately anyway,
+            // especially if the cardinality of a column is high,
+            // where there will be a lot of antimodes
+            if antimodes_result_ctr < 10 {
+                antimodes_result.push(val);
+                antimodes_result_ctr += 1;
+            }
+        })
+        .count();
 
     if lowest_mode == u32::MAX {
         lowest_mode = 0;
