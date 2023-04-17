@@ -57,10 +57,7 @@ impl OnlineStats {
     /// Initializes variance from a sample.
     #[must_use]
     pub fn from_slice<T: ToPrimitive>(samples: &[T]) -> OnlineStats {
-        samples
-            .iter()
-            .map(|n| unsafe { n.to_f64().unwrap_unchecked() })
-            .collect()
+        samples.iter().map(|n| n.to_f64().unwrap()).collect()
     }
 
     /// Return the current mean.
@@ -90,7 +87,7 @@ impl OnlineStats {
     #[inline]
     #[allow(clippy::needless_pass_by_value)]
     pub fn add<T: ToPrimitive>(&mut self, sample: T) {
-        let sample = unsafe { sample.to_f64().unwrap_unchecked() };
+        let sample = sample.to_f64().unwrap();
         // Taken from: https://en.wikipedia.org/wiki/Standard_deviation#Rapid_calculation_methods
         // See also: https://api.semanticscholar.org/CorpusID:120126049
         let oldmean = self.mean;
