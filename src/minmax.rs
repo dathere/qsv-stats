@@ -2,12 +2,14 @@ use std::default::Default;
 use std::fmt;
 use std::iter::{FromIterator, IntoIterator};
 
+use serde::{Deserialize, Serialize};
+
 use crate::Commute;
 
 /// A commutative data structure for tracking minimum and maximum values.
 ///
 /// This also stores the number of samples.
-#[derive(Clone)]
+#[derive(Clone, Deserialize, Serialize, Eq, PartialEq)]
 pub struct MinMax<T> {
     len: u64,
     min: Option<T>,

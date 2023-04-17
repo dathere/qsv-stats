@@ -3,6 +3,7 @@ use std::fmt;
 use std::iter::{FromIterator, IntoIterator};
 
 use num_traits::ToPrimitive;
+use serde::{Deserialize, Serialize};
 
 use crate::Commute;
 
@@ -37,7 +38,7 @@ where
 }
 
 /// Online state for computing mean, variance and standard deviation.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Serialize, Deserialize, PartialEq)]
 pub struct OnlineStats {
     size: u64,
     mean: f64,

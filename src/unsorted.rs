@@ -1,6 +1,7 @@
 use num_traits::ToPrimitive;
 use std::default::Default;
 use std::iter::{FromIterator, IntoIterator};
+use serde::{Deserialize, Serialize};
 
 use {crate::Commute, crate::Partial};
 
@@ -371,7 +372,7 @@ where
 /// Note that this works on types that do not define a total ordering like
 /// `f32` and `f64`. When an ordering is not defined, an arbitrary order
 /// is returned.
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize, Eq, PartialEq, Debug)]
 pub struct Unsorted<T> {
     data: Vec<Partial<T>>,
     sorted: bool,

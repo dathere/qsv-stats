@@ -13,6 +13,8 @@ use num_traits::ToPrimitive;
 use std::cmp::Ordering;
 use std::hash;
 
+use serde::{Deserialize, Serialize};
+
 pub use frequency::{Frequencies, UniqueValues};
 pub use minmax::MinMax;
 pub use online::{mean, stddev, variance, OnlineStats};
@@ -22,7 +24,7 @@ pub use unsorted::{antimodes, mad, median, mode, modes, quartiles, Unsorted};
 ///
 /// This allows types like `f64` to be used in data structures that require
 /// `Ord`. When an ordering is not defined, an arbitrary order is returned.
-#[derive(Clone, PartialEq, PartialOrd)]
+#[derive(Clone, PartialEq, PartialOrd, Serialize, Deserialize, Debug)]
 struct Partial<T>(pub T);
 
 impl<T: PartialEq> Eq for Partial<T> {}

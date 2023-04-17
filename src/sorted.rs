@@ -60,7 +60,7 @@ pub fn mode_on_sorted<T, I>(it: I) -> Option<T>
 /// Note that this works on types that do not define a total ordering like
 /// `f32` and `f64`. Then an ordering is not defined, an arbitrary order
 /// is returned.
-#[derive(Clone)]
+#[derive(Clone, Deserialize, Serialize, Eq, PartialEq, Debug)]
 pub struct Sorted<T> {
     data: BinaryHeap<Partial<T>>,
 }
