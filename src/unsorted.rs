@@ -1,7 +1,7 @@
 use num_traits::ToPrimitive;
+use serde::{Deserialize, Serialize};
 use std::default::Default;
 use std::iter::{FromIterator, IntoIterator};
-use serde::{Deserialize, Serialize};
 
 use {crate::Commute, crate::Partial};
 
