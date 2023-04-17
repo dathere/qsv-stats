@@ -90,7 +90,7 @@ impl<T: ToPrimitive> ToPrimitive for Partial<T> {
     }
 }
 
-#[allow(clippy::derive_hash_xor_eq)]
+#[allow(clippy::derived_hash_with_manual_eq)]
 impl<T: hash::Hash> hash::Hash for Partial<T> {
     #[inline]
     fn hash<H: hash::Hasher>(&self, state: &mut H) {
