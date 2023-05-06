@@ -28,6 +28,8 @@ pub use unsorted::{antimodes, mad, median, mode, modes, quartiles, Unsorted};
 struct Partial<T>(pub T);
 
 impl<T: PartialEq> Eq for Partial<T> {}
+unsafe impl <T> Send for Partial<T> {}
+unsafe impl <T> Sync for Partial<T> {}
 
 #[allow(clippy::derive_ord_xor_partial_ord)]
 impl<T: PartialOrd> Ord for Partial<T> {

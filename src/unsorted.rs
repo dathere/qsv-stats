@@ -134,6 +134,8 @@ fn mad_on_sorted<T>(data: &[T], precalc_median: Option<f64>) -> Option<f64>
 where
     T: PartialOrd + ToPrimitive,
 {
+    use rayon::slice::ParallelSliceMut;
+
     if data.is_empty() {
         return None;
     }
@@ -147,7 +149,7 @@ where
             abs_diff_vec.push((median_obs - val).abs());
         }
     }
-    abs_diff_vec.sort_unstable_by(|a, b| a.partial_cmp(b).unwrap());
+    abs_diff_vec.par_sort_unstable_by(|a, b| a.partial_cmp(b).unwrap());
     median_on_sorted(&abs_diff_vec)
 }
 
@@ -389,7 +391,7 @@ impl<T: PartialOrd> Unsorted<T> {
     /// Add a new element to the set.
     #[inline]
     pub fn add(&mut self, v: T) {
-        self.dirtied();
+        self.sorted = false;
         self.data.push(Partial(v));
     }
 
@@ -403,16 +405,13 @@ impl<T: PartialOrd> Unsorted<T> {
 
     #[inline]
     fn sort(&mut self) {
+        use rayon::slice::ParallelSliceMut;
         if !self.sorted {
-            self.data.sort_unstable();
+            self.data.par_sort_unstable();
             self.sorted = true;
         }
     }
 
-    #[inline(always)]
-    fn dirtied(&mut self) {
-        self.sorted = false;
-    }
 }
 
 impl<T: PartialOrd + Eq + Clone> Unsorted<T> {
@@ -486,7 +485,7 @@ impl<T: PartialOrd + ToPrimitive> Unsorted<T> {
 impl<T: PartialOrd> Commute for Unsorted<T> {
     #[inline]
     fn merge(&mut self, v: Unsorted<T>) {
-        self.dirtied();
+        self.sorted = false;
         self.data.extend(v.data.into_iter());
     }
 }
@@ -495,7 +494,7 @@ impl<T: PartialOrd> Default for Unsorted<T> {
     #[inline]
     fn default() -> Unsorted<T> {
         Unsorted {
-            data: Vec::with_capacity(1000),
+            data: Vec::with_capacity(10_000),
             sorted: true,
         }
     }
@@ -513,7 +512,7 @@ impl<T: PartialOrd> FromIterator<T> for Unsorted<T> {
 impl<T: PartialOrd> Extend<T> for Unsorted<T> {
     #[inline]
     fn extend<I: IntoIterator<Item = T>>(&mut self, it: I) {
-        self.dirtied();
+        self.sorted = false;
         self.data.extend(it.into_iter().map(Partial));
     }
 }
