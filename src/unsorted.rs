@@ -411,7 +411,6 @@ impl<T: PartialOrd> Unsorted<T> {
             self.sorted = true;
         }
     }
-
 }
 
 impl<T: PartialOrd + Eq + Clone> Unsorted<T> {
