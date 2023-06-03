@@ -8,6 +8,7 @@ homepage = "https://github.com/jqnatividad/rust-stats"
 repository = "https://github.com/jqnatividad/rust-stats"
 readme = "README.md"
 keywords = ["statistics", "stats", "median", "mean", "stddev"]
+categories = ["science", "math"]
 license  = "MIT OR Unlicense"
 edition = "2021"
 
