@@ -6,9 +6,6 @@
 #![allow(clippy::missing_panics_doc)]
 #![allow(clippy::use_self)]
 
-extern crate ahash;
-extern crate num_traits;
-
 use num_traits::ToPrimitive;
 use std::cmp::Ordering;
 use std::hash;
