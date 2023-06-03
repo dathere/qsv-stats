@@ -117,16 +117,14 @@ where
 {
     Some(match data.len() {
         0 => return None,
-        1 => unsafe { data.get_unchecked(0).to_f64().unwrap_unchecked() },
-        len if len % 2 == 0 => unsafe {
-            let v1 = data
-                .get_unchecked((len / 2) - 1)
-                .to_f64()
-                .unwrap_unchecked();
-            let v2 = data.get_unchecked(len / 2).to_f64().unwrap_unchecked();
+        1 => data.get(0)?.to_f64().unwrap(),
+        len if len % 2 == 0 => {
+            let idx = len / 2;
+            let v1 = data.get(idx - 1)?.to_f64().unwrap();
+            let v2 = data.get(idx)?.to_f64().unwrap();
             (v1 + v2) / 2.0
-        },
-        len => unsafe { data.get_unchecked(len / 2).to_f64().unwrap_unchecked() },
+        }
+        len => data.get(len / 2)?.to_f64().unwrap(),
     })
 }
 
@@ -144,10 +142,8 @@ where
 
     let mut abs_diff_vec: Vec<f64> = Vec::with_capacity(data.len());
     for x in data {
-        unsafe {
-            let val: f64 = x.to_f64().unwrap_unchecked();
-            abs_diff_vec.push((median_obs - val).abs());
-        }
+        let val: f64 = x.to_f64().unwrap();
+        abs_diff_vec.push((median_obs - val).abs());
     }
     abs_diff_vec.par_sort_unstable_by(|a, b| a.partial_cmp(b).unwrap());
     median_on_sorted(&abs_diff_vec)
@@ -159,76 +155,75 @@ where
 {
     Some(match data.len() {
         0..=2 => return None,
-        3 => unsafe {
-            (
-                data.get_unchecked(0).to_f64().unwrap_unchecked(),
-                data.get_unchecked(1).to_f64().unwrap_unchecked(),
-                data.get_unchecked(2).to_f64().unwrap_unchecked(),
-            )
-        },
+        3 => (
+            data.get(0)?.to_f64().unwrap(),
+            data.get(1)?.to_f64().unwrap(),
+            data.get(2)?.to_f64().unwrap(),
+        ),
         len => {
             let r = len % 4;
             let k = (len - r) / 4;
+            assert!(k <= len); // hint to compiler to avoid bounds check
             match r {
                 // Let data = {x_i}_{i=0..4k} where k is positive integer.
                 // Median q2 = (x_{2k-1} + x_{2k}) / 2.
                 // If we divide data into two parts {x_i < q2} as L and
                 // {x_i > q2} as R, #L == #R == 2k holds true. Thus,
                 // q1 = (x_{k-1} + x_{k}) / 2 and q3 = (x_{3k-1} + x_{3k}) / 2.
-                0 => unsafe {
+                0 => {
                     let (q1_l, q1_r, q2_l, q2_r, q3_l, q3_r) = (
-                        data.get_unchecked(k - 1).to_f64().unwrap_unchecked(),
-                        data.get_unchecked(k).to_f64().unwrap_unchecked(),
-                        data.get_unchecked(2 * k - 1).to_f64().unwrap_unchecked(),
-                        data.get_unchecked(2 * k).to_f64().unwrap_unchecked(),
-                        data.get_unchecked(3 * k - 1).to_f64().unwrap_unchecked(),
-                        data.get_unchecked(3 * k).to_f64().unwrap_unchecked(),
+                        data.get(k - 1)?.to_f64().unwrap(),
+                        data.get(k)?.to_f64().unwrap(),
+                        data.get(2 * k - 1)?.to_f64().unwrap(),
+                        data.get(2 * k)?.to_f64().unwrap(),
+                        data.get(3 * k - 1)?.to_f64().unwrap(),
+                        data.get(3 * k)?.to_f64().unwrap(),
                     );
 
                     ((q1_l + q1_r) / 2., (q2_l + q2_r) / 2., (q3_l + q3_r) / 2.)
-                },
+                }
                 // Let data = {x_i}_{i=0..4k+1} where k is positive integer.
                 // Median q2 = x_{2k}.
                 // If we divide data other than q2 into two parts {x_i < q2}
                 // as L and {x_i > q2} as R, #L == #R == 2k holds true. Thus,
                 // q1 = (x_{k-1} + x_{k}) / 2 and q3 = (x_{3k} + x_{3k+1}) / 2.
-                1 => unsafe {
+                1 => {
                     let (q1_l, q1_r, q2, q3_l, q3_r) = (
-                        data.get_unchecked(k - 1).to_f64().unwrap_unchecked(),
-                        data.get_unchecked(k).to_f64().unwrap_unchecked(),
-                        data.get_unchecked(2 * k).to_f64().unwrap_unchecked(),
-                        data.get_unchecked(3 * k).to_f64().unwrap_unchecked(),
-                        data.get_unchecked(3 * k + 1).to_f64().unwrap_unchecked(),
+                        data.get(k - 1)?.to_f64().unwrap(),
+                        data.get(k)?.to_f64().unwrap(),
+                        data.get(2 * k)?.to_f64().unwrap(),
+                        data.get(3 * k)?.to_f64().unwrap(),
+                        data.get(3 * k + 1)?.to_f64().unwrap(),
                     );
                     ((q1_l + q1_r) / 2., q2, (q3_l + q3_r) / 2.)
-                },
+                }
                 // Let data = {x_i}_{i=0..4k+2} where k is positive integer.
                 // Median q2 = (x_{(2k+1)-1} + x_{2k+1}) / 2.
                 // If we divide data into two parts {x_i < q2} as L and
                 // {x_i > q2} as R, it's true that #L == #R == 2k+1.
                 // Thus, q1 = x_{k} and q3 = x_{3k+1}.
-                2 => unsafe {
+                2 => {
                     let (q1, q2_l, q2_r, q3) = (
-                        data.get_unchecked(k).to_f64().unwrap_unchecked(),
-                        data.get_unchecked(2 * k).to_f64().unwrap_unchecked(),
-                        data.get_unchecked(2 * k + 1).to_f64().unwrap_unchecked(),
-                        data.get_unchecked(3 * k + 1).to_f64().unwrap_unchecked(),
+                        data.get(k)?.to_f64().unwrap(),
+                        data.get(2 * k)?.to_f64().unwrap(),
+                        data.get(2 * k + 1)?.to_f64().unwrap(),
+                        data.get(3 * k + 1)?.to_f64().unwrap(),
                     );
                     (q1, (q2_l + q2_r) / 2., q3)
-                },
+                }
                 // Let data = {x_i}_{i=0..4k+3} where k is positive integer.
                 // Median q2 = x_{2k+1}.
                 // If we divide data other than q2 into two parts {x_i < q2}
                 // as L and {x_i > q2} as R, #L == #R == 2k+1 holds true.
                 // Thus, q1 = x_{k} and q3 = x_{3k+2}.
-                _ => unsafe {
+                _ => {
                     let (q1, q2, q3) = (
-                        data.get_unchecked(k).to_f64().unwrap_unchecked(),
-                        data.get_unchecked(2 * k + 1).to_f64().unwrap_unchecked(),
-                        data.get_unchecked(3 * k + 2).to_f64().unwrap_unchecked(),
+                        data.get(k)?.to_f64().unwrap(),
+                        data.get(2 * k + 1)?.to_f64().unwrap(),
+                        data.get(3 * k + 2)?.to_f64().unwrap(),
                     );
                     (q1, q2, q3)
-                },
+                }
             }
         }
     })
