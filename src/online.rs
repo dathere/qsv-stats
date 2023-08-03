@@ -85,8 +85,7 @@ impl OnlineStats {
 
     /// Add a new sample.
     #[inline]
-    #[allow(clippy::needless_pass_by_value)]
-    pub fn add<T: ToPrimitive>(&mut self, sample: T) {
+    pub fn add<T: ToPrimitive>(&mut self, sample: &T) {
         let sample = sample.to_f64().unwrap();
         // Taken from: https://en.wikipedia.org/wiki/Standard_deviation#Rapid_calculation_methods
         // See also: https://api.semanticscholar.org/CorpusID:120126049
@@ -103,7 +102,7 @@ impl OnlineStats {
     /// This increases the population size by `1`.
     #[inline]
     pub fn add_null(&mut self) {
-        self.add(0usize);
+        self.add(&0usize);
     }
 
     /// Returns the number of data points.
@@ -175,7 +174,7 @@ impl<T: ToPrimitive> Extend<T> for OnlineStats {
     #[inline]
     fn extend<I: IntoIterator<Item = T>>(&mut self, it: I) {
         for sample in it {
-            self.add(sample);
+            self.add(&sample);
         }
     }
 }
