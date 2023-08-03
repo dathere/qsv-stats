@@ -291,8 +291,13 @@ where
     let modes_result: Vec<T> = modes
         .into_iter()
         .zip(values)
-        .filter(|(cnt, _val)| *cnt == highest_mode && highest_mode > 1)
-        .map(|(_, val)| val)
+        .filter_map(|(cnt, val)| {
+            if cnt == highest_mode && highest_mode > 1 {
+                Some(val)
+            } else {
+                None
+            }
+        })
         .collect();
 
     let modes_count = modes_result.len();
