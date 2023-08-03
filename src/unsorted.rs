@@ -307,34 +307,34 @@ where
 {
     let mut lowest_mode = u32::MAX;
     // to do some prealloc, without taking up too much memory
-    let mut modes: Vec<u32> = Vec::with_capacity(usize::min(size / 3, 10_000));
+    let mut antimodes: Vec<u32> = Vec::with_capacity(usize::min(size / 3, 10_000));
     let mut values = Vec::with_capacity(usize::min(size / 3, 10_000));
     let mut count = 0;
     for x in it {
         if values.is_empty() {
             values.push(x);
-            modes.push(1);
+            antimodes.push(1);
             continue;
         }
         if x == values[count] {
-            modes[count] += 1;
+            antimodes[count] += 1;
         } else {
             values.push(x);
-            modes.push(1);
-            if lowest_mode > modes[count] {
-                lowest_mode = modes[count];
+            antimodes.push(1);
+            if lowest_mode > antimodes[count] {
+                lowest_mode = antimodes[count];
             }
             count += 1;
         }
     }
-    if count > 0 && lowest_mode > modes[count] {
-        lowest_mode = modes[count];
+    if count > 0 && lowest_mode > antimodes[count] {
+        lowest_mode = antimodes[count];
     }
 
     let mut antimodes_result: Vec<T> = Vec::with_capacity(10);
     let mut antimodes_result_ctr: u8 = 0;
 
-    let antimodes_count = modes
+    let antimodes_count = antimodes
         .into_iter()
         .zip(values)
         .filter(|(cnt, _val)| *cnt == lowest_mode && lowest_mode < u32::MAX)
