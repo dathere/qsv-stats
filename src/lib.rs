@@ -168,7 +168,7 @@ impl<T: Commute> Commute for Vec<T> {
     #[inline]
     fn merge(&mut self, other: Vec<T>) {
         assert_eq!(self.len(), other.len());
-        for (v1, v2) in self.iter_mut().zip(other.into_iter()) {
+        for (v1, v2) in self.iter_mut().zip(other) {
             v1.merge(v2);
         }
     }

@@ -480,7 +480,7 @@ impl<T: PartialOrd> Commute for Unsorted<T> {
     #[inline]
     fn merge(&mut self, v: Unsorted<T>) {
         self.sorted = false;
-        self.data.extend(v.data.into_iter());
+        self.data.extend(v.data);
     }
 }
 
