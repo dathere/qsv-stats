@@ -103,12 +103,7 @@ where
 {
     let (antimodes_result, antimodes_count, antimodes_occurrences) =
         it.collect::<Unsorted<T>>().antimodes();
-    let antimodes_preview = if antimodes_count > 10 {
-        antimodes_result[..10].to_vec()
-    } else {
-        antimodes_result
-    };
-    (antimodes_preview, antimodes_count, antimodes_occurrences)
+    (antimodes_result, antimodes_count, antimodes_occurrences)
 }
 
 fn median_on_sorted<T>(data: &[T]) -> Option<f64>
