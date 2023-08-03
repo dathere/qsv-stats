@@ -151,7 +151,8 @@ impl<T: Commute, E> Commute for Result<T, E> {
             *self = other;
             return;
         }
-        self.as_mut().map_or((), |v1| {
+        #[allow(clippy::let_unit_value)]
+        let _ = self.as_mut().map_or((), |v1| {
             other.map_or_else(
                 |_| {
                     unreachable!();
