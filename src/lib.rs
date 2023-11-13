@@ -152,6 +152,7 @@ impl<T: Commute, E> Commute for Result<T, E> {
             return;
         }
         #[allow(clippy::let_unit_value)]
+        #[allow(clippy::ignored_unit_patterns)]
         let _ = self.as_mut().map_or((), |v1| {
             other.map_or_else(
                 |_| {
