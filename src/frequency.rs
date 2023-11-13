@@ -60,6 +60,7 @@ impl<T: Eq + Hash> Frequencies<T> {
         if counts.is_empty() {
             return None;
         }
+        // If there is a tie for the most frequent element, return None.
         if counts.len() >= 2 && counts[0].1 == counts[1].1 {
             None
         } else {
