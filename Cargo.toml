@@ -1,6 +1,6 @@
 [package]
 name = "qsv-stats"
-version = "0.11.0"  #:version
+version = "0.12.0"  #:version
 authors = ["Joel Natividad <joel@dathere.com>"]
 description = "Computing summary statistics on streams."
 documentation = "https://docs.rs/qsv-stats"
