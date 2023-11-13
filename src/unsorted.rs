@@ -112,7 +112,7 @@ where
 {
     Some(match data.len() {
         0 => return None,
-        1 => data.get(0)?.to_f64().unwrap(),
+        1 => data.first()?.to_f64().unwrap(),
         len if len % 2 == 0 => {
             let idx = len / 2;
             let v1 = data.get(idx - 1)?.to_f64().unwrap();
@@ -151,9 +151,9 @@ where
     Some(match data.len() {
         0..=2 => return None,
         3 => (
-            data.get(0)?.to_f64().unwrap(),
+            data.first()?.to_f64().unwrap(),
             data.get(1)?.to_f64().unwrap(),
-            data.get(2)?.to_f64().unwrap(),
+            data.last()?.to_f64().unwrap(),
         ),
         len => {
             let r = len % 4;
