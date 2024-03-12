@@ -131,11 +131,7 @@ impl Commute for OnlineStats {
         /*
         below is the fused multiply add version of the statement above
         its more performant as we're taking advantage of a CPU instruction
-        Note that fma appears to have issues on macOS per the flaky CI tests
-        and it appears that clippy::suboptimal_flops lint that suggested
-        this made a false-positive recommendation
-        https://github.com/rust-lang/rust-clippy/issues/10003
-        leaving on for now, as qsv is primarily optimized for Linux targets */
+        */
         self.mean = s1.mul_add(self.mean, s2 * v.mean) / (s1 + s2);
 
         self.q += v.q + meandiffsq * s1 * s2 / (s1 + s2);
