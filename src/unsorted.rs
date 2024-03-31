@@ -326,6 +326,7 @@ where
 
     let mut antimodes_result: Vec<T> = Vec::with_capacity(10);
     let mut antimodes_result_ctr: u8 = 0;
+    let mut keep_count = true;
 
     let antimodes_count = antimodes
         .into_iter()
@@ -336,9 +337,12 @@ where
             // antimode values more than 10 we'll throw away immediately anyway,
             // especially if the cardinality of a column is high,
             // where there will be a lot of antimodes
-            if antimodes_result_ctr < 10 {
+            if keep_count {
                 antimodes_result.push(val);
                 antimodes_result_ctr += 1;
+                if antimodes_result_ctr == 10 {
+                    keep_count = false;
+                }
             }
         })
         .count();
