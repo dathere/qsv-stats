@@ -265,41 +265,31 @@ where
     I: Iterator<Item = T>,
 {
     let mut highest_mode = 0_u32;
-    // to do some prealloc without taking up to much memory
-    let mut modes: Vec<u32> = Vec::with_capacity(usize::min(size / 3, 10_000));
-    let mut values = Vec::with_capacity(usize::min(size / 3, 10_000));
+    let mut modes: Vec<(T, u32)> = Vec::with_capacity(usize::min(size / 3, 10_000));
     let mut count = 0;
     for x in it {
-        if values.is_empty() {
-            values.push(x);
-            modes.push(1);
+        if modes.is_empty() {
+            modes.push((x, 1));
             continue;
         }
-        if x == values[count] {
-            modes[count] += 1;
-            if highest_mode < modes[count] {
-                highest_mode = modes[count];
+        if x == modes[count].0 {
+            modes[count].1 += 1;
+            if highest_mode < modes[count].1 {
+                highest_mode = modes[count].1;
             }
         } else {
-            values.push(x);
-            modes.push(1);
+            modes.push((x, 1));
             count += 1;
         }
     }
-    let modes_result: Vec<T> = modes
-        .into_iter()
-        .zip(values)
-        .filter_map(|(cnt, val)| {
-            if cnt == highest_mode && highest_mode > 1 {
-                Some(val)
-            } else {
-                None
-            }
-        })
-        .collect();
-
-    let modes_count = modes_result.len();
-
+    let mut modes_result: Vec<T> = Vec::new();
+    let mut modes_count = 0;
+    for (val, cnt) in modes {
+        if cnt == highest_mode && highest_mode > 1 {
+            modes_result.push(val);
+            modes_count += 1;
+        }
+    }
     (modes_result, modes_count, highest_mode)
 }
 
