@@ -11,7 +11,7 @@ keywords = ["statistics", "stats", "median", "mean", "stddev"]
 categories = ["science", "math"]
 license  = "MIT OR Unlicense"
 edition = "2021"
-rust-version = "1.76.0"
+rust-version = "1.77.1"
 
 [lib]
 name = "stats"
@@ -19,5 +19,5 @@ name = "stats"
 [dependencies]
 ahash = "0.8"
 num-traits = "0.2"
-rayon = "1.9"
+rayon = "1.10"
 serde = { version = "1", features = ["derive"] }
