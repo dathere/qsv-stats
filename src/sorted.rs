@@ -1,5 +1,5 @@
 use std::collections::BinaryHeap;
-use ahash::AHashMap;
+// use ahash::AHashMap;
 use std::default::Default;
 use std::iter::{FromIterator, IntoIterator};
 
@@ -57,24 +57,24 @@ pub fn mode_on_sorted<T, I>(it: I) -> Option<T>
     mode
 }
 
-pub fn mode_hashmap<T, I>(it: I) -> Option<T>
-where
-    T: Eq + Hash + Clone,
-    I: Iterator<Item = T>,
-{
-    let mut counts = AHashMap::new();
-    let mut mode = None;
-    let mut mode_count = 0;
-    for x in it {
-        let count = counts.entry(x.clone()).or_insert(0);
-        *count += 1;
-        if *count > mode_count {
-            mode = Some(x.clone());
-            mode_count = *count;
-        }
-    }
-    mode
-}
+// pub fn mode_hashmap<T, I>(it: I) -> Option<T>
+// where
+//     T: Eq + Hash + Clone,
+//     I: Iterator<Item = T>,
+// {
+//     let mut counts = AHashMap::new();
+//     let mut mode = None;
+//     let mut mode_count = 0;
+//     for x in it {
+//         let count = counts.entry(x.clone()).or_insert(0);
+//         *count += 1;
+//         if *count > mode_count {
+//             mode = Some(x.clone());
+//             mode_count = *count;
+//         }
+//     }
+//     mode
+// }
 
 /// A commutative data structure for sorted sequences of data.
 ///
@@ -114,11 +114,11 @@ impl<T: PartialOrd + Clone> Sorted<T> {
         p.map(|p| p.0)
     }
 
-    #[inline]
-    pub fn mode2(&self) -> Option<T> {
-        let p = mode_hashmap(self.data.clone().into_iter());
-        p.map(|p| p.0)
-    }
+    // #[inline]
+    // pub fn mode2(&self) -> Option<T> {
+    //     let p = mode_hashmap(self.data.clone().into_iter());
+    //     p.map(|p| p.0)
+    // }
 }
 
 impl<T: PartialOrd + ToPrimitive + Clone> Sorted<T> {
@@ -198,14 +198,14 @@ mod test {
         assert_eq!(mode(vec![1usize, 1, 2, 3, 3].into_iter()), None);
     }
 
-    #[test]
-    fn mode2_stream() {
-        assert_eq!(mode2(vec![3usize, 5, 7, 9].into_iter()), None);
-        assert_eq!(mode2(vec![3usize, 3, 3, 3].into_iter()), Some(3));
-        assert_eq!(mode2(vec![3usize, 3, 3, 4].into_iter()), Some(3));
-        assert_eq!(mode2(vec![4usize, 3, 3, 3].into_iter()), Some(3));
-        assert_eq!(mode2(vec![1usize, 1, 2, 3, 3].into_iter()), None);
-    }
+    // #[test]
+    // fn mode2_stream() {
+    //     assert_eq!(mode2(vec![3usize, 5, 7, 9].into_iter()), None);
+    //     assert_eq!(mode2(vec![3usize, 3, 3, 3].into_iter()), Some(3));
+    //     assert_eq!(mode2(vec![3usize, 3, 3, 4].into_iter()), Some(3));
+    //     assert_eq!(mode2(vec![4usize, 3, 3, 3].into_iter()), Some(3));
+    //     assert_eq!(mode2(vec![1usize, 1, 2, 3, 3].into_iter()), None);
+    // }
 
     #[test]
     fn median_floats() {
@@ -222,12 +222,12 @@ mod test {
         assert_eq!(mode(vec![1.0f64, 1.0, 2.0, 3.0, 3.0].into_iter()), None);
     }
 
-    #[test]
-    fn mode2_floats() {
-        assert_eq!(mode2(vec![3.0f64, 5.0, 7.0, 9.0].into_iter()), None);
-        assert_eq!(mode2(vec![3.0f64, 3.0, 3.0, 3.0].into_iter()), Some(3.0));
-        assert_eq!(mode2(vec![3.0f64, 3.0, 3.0, 4.0].into_iter()), Some(3.0));
-        assert_eq!(mode2(vec![4.0f64, 3.0, 3.0, 3.0].into_iter()), Some(3.0));
-        assert_eq!(mode2(vec![1.0f64, 1.0, 2.0, 3.0, 3.0].into_iter()), None);
-    }
+    // #[test]
+    // fn mode2_floats() {
+    //     assert_eq!(mode2(vec![3.0f64, 5.0, 7.0, 9.0].into_iter()), None);
+    //     assert_eq!(mode2(vec![3.0f64, 3.0, 3.0, 3.0].into_iter()), Some(3.0));
+    //     assert_eq!(mode2(vec![3.0f64, 3.0, 3.0, 4.0].into_iter()), Some(3.0));
+    //     assert_eq!(mode2(vec![4.0f64, 3.0, 3.0, 3.0].into_iter()), Some(3.0));
+    //     assert_eq!(mode2(vec![1.0f64, 1.0, 2.0, 3.0, 3.0].into_iter()), None);
+    // }
 }
