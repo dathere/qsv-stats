@@ -272,10 +272,15 @@ where
             modes.push((x, 1));
             continue;
         }
-        if x == modes[count].0 {
-            modes[count].1 += 1;
-            if highest_mode < modes[count].1 {
-                highest_mode = modes[count].1;
+        // safety: we know the index is within bounds, since we just added it
+        // so we use get_unchecked to avoid bounds checking
+        if unsafe { x == modes.get_unchecked(count).0 } {
+            unsafe {
+                let mode = modes.get_unchecked_mut(count);
+                mode.1 += 1;
+                if highest_mode < mode.1 {
+                    highest_mode = mode.1;
+                }
             }
         } else {
             modes.push((x, 1));
@@ -303,25 +308,29 @@ where
     let mut antimodes: Vec<u32> = Vec::with_capacity(usize::min(size / 3, 10_000));
     let mut values = Vec::with_capacity(usize::min(size / 3, 10_000));
     let mut count = 0;
+    // safety: we know the index is within bounds, since we just added it
+    // so we use get_unchecked to avoid bounds checking
     for x in it {
         if values.is_empty() {
             values.push(x);
             antimodes.push(1);
             continue;
         }
-        if x == values[count] {
-            antimodes[count] += 1;
+        if unsafe { *values.get_unchecked(count) == x } {
+            unsafe {
+                *antimodes.get_unchecked_mut(count) += 1;
+            }
         } else {
             values.push(x);
             antimodes.push(1);
-            if lowest_mode > antimodes[count] {
-                lowest_mode = antimodes[count];
+            if unsafe { lowest_mode > *antimodes.get_unchecked(count) } {
+                lowest_mode = unsafe { *antimodes.get_unchecked(count) };
             }
             count += 1;
         }
     }
-    if count > 0 && lowest_mode > antimodes[count] {
-        lowest_mode = antimodes[count];
+    if unsafe { count > 0 && lowest_mode > *antimodes.get_unchecked(count) } {
+        lowest_mode = unsafe { *antimodes.get_unchecked(count) };
     }
 
     let mut antimodes_result: Vec<T> = Vec::with_capacity(10);
