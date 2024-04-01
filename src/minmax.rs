@@ -90,6 +90,7 @@ impl<T: PartialOrd> Default for MinMax<T> {
     }
 }
 
+#[cfg(debug_assertions)]
 impl<T: fmt::Debug> fmt::Debug for MinMax<T> {
     #[inline]
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {

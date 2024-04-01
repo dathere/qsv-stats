@@ -10,6 +10,7 @@ pub struct Frequencies<T> {
     data: AHashMap<T, u64>,
 }
 
+#[cfg(debug_assertions)]
 impl<T: fmt::Debug + Eq + Hash> fmt::Debug for Frequencies<T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{:?}", self.data)
