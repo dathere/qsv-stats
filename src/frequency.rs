@@ -3,6 +3,8 @@ use std::collections::hash_map::{Entry, Keys};
 use std::fmt;
 use std::hash::Hash;
 
+use rayon::prelude::*;
+
 use crate::Commute;
 /// A commutative data structure for exact frequency counts.
 #[derive(Clone)]
@@ -87,6 +89,25 @@ impl<T: Eq + Hash> Frequencies<T> {
         counts
     }
 
+    /// Return a `Vec` of elements and their corresponding counts in order
+    /// based on the `least` parameter. Uses parallel sort.
+    #[inline]
+    #[must_use]
+    pub fn par_frequent(&self, least: bool) -> Vec<(&T, u64)>
+    where
+        for<'a> (&'a T, u64): Send,
+    {
+        let mut counts: Vec<_> = self.data.iter().map(|(k, &v)| (k, v)).collect();
+        if least {
+            // return counts in ascending order
+            counts.par_sort_unstable_by(|&(_, c1), &(_, c2)| c1.cmp(&c2));
+        } else {
+            // return counts in descending order
+            counts.par_sort_unstable_by(|&(_, c1), &(_, c2)| c2.cmp(&c1));
+        }
+        counts
+    }
+
     /// Returns the cardinality of the data.
     #[must_use]
     pub fn len(&self) -> usize {
@@ -128,7 +149,7 @@ impl<T: Eq + Hash> Default for Frequencies<T> {
     #[inline]
     fn default() -> Frequencies<T> {
         Frequencies {
-            data: AHashMap::with_capacity(100_000),
+            data: AHashMap::with_capacity(10_000),
         }
     }
 }
@@ -174,6 +195,14 @@ mod test {
         counts.extend(vec![1usize, 1, 2, 2, 2, 2, 2, 3, 4, 4, 4].into_iter());
         assert_eq!(counts.most_frequent()[0], (&2, 5));
         assert_eq!(counts.least_frequent()[0], (&3, 1));
+    }
+
+    #[test]
+    fn ranked2() {
+        let mut counts = Frequencies::new();
+        counts.extend(vec![1usize, 1, 2, 2, 2, 2, 2, 3, 4, 4, 4].into_iter());
+        assert_eq!(counts.par_frequent(false)[0], (&2, 5));
+        assert_eq!(counts.par_frequent(true)[0], (&3, 1));
     }
 
     #[test]
