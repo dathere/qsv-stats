@@ -57,7 +57,7 @@ impl<T: Eq + Hash> Frequencies<T> {
     #[inline]
     #[must_use]
     pub fn mode(&self) -> Option<&T> {
-        let counts = self.most_frequent();
+        let (counts, _) = self.most_frequent();
         if counts.is_empty() {
             return None;
         }
@@ -69,43 +69,81 @@ impl<T: Eq + Hash> Frequencies<T> {
         }
     }
 
-    /// Return a `Vec` of elements and their corresponding counts in
-    /// descending order.
+    /// Return a `Vec` of elements, their corresponding counts in
+    /// descending order, and the total count.
     #[inline]
     #[must_use]
-    pub fn most_frequent(&self) -> Vec<(&T, u64)> {
-        let mut counts: Vec<_> = self.data.iter().map(|(k, &v)| (k, v)).collect();
+    pub fn most_frequent(&self) -> (Vec<(&T, u64)>, u64) {
+        let mut total_count = 0_u64;
+        let mut counts: Vec<_> = self
+            .data
+            .iter()
+            .map(|(k, &v)| {
+                total_count += v;
+                (k, v)
+            })
+            .collect();
         counts.sort_unstable_by(|&(_, c1), &(_, c2)| c2.cmp(&c1));
-        counts
+        (counts, total_count)
     }
 
-    /// Return a `Vec` of elements and their corresponding counts in
-    /// ascending order.
+    /// Return a `Vec` of elements, their corresponding counts in
+    /// ascending order, and the total count.
     #[inline]
     #[must_use]
-    pub fn least_frequent(&self) -> Vec<(&T, u64)> {
-        let mut counts: Vec<_> = self.data.iter().map(|(k, &v)| (k, v)).collect();
+    pub fn least_frequent(&self) -> (Vec<(&T, u64)>, u64) {
+        let mut total_count = 0_u64;
+        let mut counts: Vec<_> = self
+            .data
+            .iter()
+            .map(|(k, &v)| {
+                total_count += v;
+                (k, v)
+            })
+            .collect();
         counts.sort_unstable_by(|&(_, c1), &(_, c2)| c1.cmp(&c2));
-        counts
+        (counts, total_count)
     }
 
-    /// Return a `Vec` of elements and their corresponding counts in order
-    /// based on the `least` parameter. Uses parallel sort.
+    /// Return a `Vec` of elements, their corresponding counts in order
+    /// based on the `least` parameter, and the total count. Uses parallel sort.
     #[inline]
     #[must_use]
-    pub fn par_frequent(&self, least: bool) -> Vec<(&T, u64)>
+    pub fn par_frequent(&self, least: bool) -> (Vec<(&T, u64)>, u64)
     where
         for<'a> (&'a T, u64): Send,
+        T: Ord,
     {
-        let mut counts: Vec<_> = self.data.iter().map(|(k, &v)| (k, v)).collect();
+        let mut total_count = 0_u64;
+        let mut counts: Vec<_> = self
+            .data
+            .iter()
+            .map(|(k, &v)| {
+                total_count += v;
+                (k, v)
+            })
+            .collect();
+        // sort by counts asc/desc
+        // if counts are equal, sort by values lexicographically
+        // We need to do this because otherwise the values are not guaranteed to be in order for equal counts
         if least {
             // return counts in ascending order
-            counts.par_sort_unstable_by(|&(_, c1), &(_, c2)| c1.cmp(&c2));
+            counts.par_sort_unstable_by(|&(v1, c1), &(v2, c2)| {
+                let cmp = c1.cmp(&c2);
+                if cmp == std::cmp::Ordering::Equal {
+                    v1.cmp(v2)
+                } else {
+                    cmp
+                }
+            });
         } else {
             // return counts in descending order
-            counts.par_sort_unstable_by(|&(_, c1), &(_, c2)| c2.cmp(&c1));
+            counts.par_sort_unstable_by(|&(v1, c1), &(v2, c2)| {
+                let cmp = c2.cmp(&c1).then_with(|| v1.cmp(v2));
+                cmp
+            });
         }
-        counts
+        (counts, total_count)
     }
 
     /// Returns the cardinality of the data.
@@ -193,16 +231,25 @@ mod test {
     fn ranked() {
         let mut counts = Frequencies::new();
         counts.extend(vec![1usize, 1, 2, 2, 2, 2, 2, 3, 4, 4, 4].into_iter());
-        assert_eq!(counts.most_frequent()[0], (&2, 5));
-        assert_eq!(counts.least_frequent()[0], (&3, 1));
+        let (most_count, most_total) = counts.most_frequent();
+        assert_eq!(most_count[0], (&2, 5));
+        assert_eq!(most_total, 11);
+        let (least_count, least_total) = counts.least_frequent();
+        assert_eq!(least_count[0], (&3, 1));
+        assert_eq!(least_total, 11);
+        // assert_eq!(counts.least_frequent()[0], (&3, 1));
     }
 
     #[test]
     fn ranked2() {
         let mut counts = Frequencies::new();
         counts.extend(vec![1usize, 1, 2, 2, 2, 2, 2, 3, 4, 4, 4].into_iter());
-        assert_eq!(counts.par_frequent(false)[0], (&2, 5));
-        assert_eq!(counts.par_frequent(true)[0], (&3, 1));
+        let (most_count, most_total) = counts.par_frequent(false);
+        assert_eq!(most_count[0], (&2, 5));
+        assert_eq!(most_total, 11);
+        let (least_count, least_total) = counts.par_frequent(true);
+        assert_eq!(least_count[0], (&3, 1));
+        assert_eq!(least_total, 11);
     }
 
     #[test]
