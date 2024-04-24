@@ -139,8 +139,7 @@ impl<T: Eq + Hash> Frequencies<T> {
         } else {
             // return counts in descending order
             counts.par_sort_unstable_by(|&(v1, c1), &(v2, c2)| {
-                let cmp = c2.cmp(&c1).then_with(|| v1.cmp(v2));
-                cmp
+                c2.cmp(&c1).then_with(|| v1.cmp(v2))
             });
         }
         (counts, total_count)
