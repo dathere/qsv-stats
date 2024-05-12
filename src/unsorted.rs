@@ -266,6 +266,7 @@ where
 {
     let mut highest_mode = 0_u32;
     let mut modes: Vec<(T, u32)> = Vec::with_capacity(usize::min(size / 3, 10_000));
+    let mut mode;
     let mut count = 0;
     for x in it {
         if modes.is_empty() {
@@ -276,7 +277,7 @@ where
         // so we use get_unchecked to avoid bounds checking
         if unsafe { x == modes.get_unchecked(count).0 } {
             unsafe {
-                let mode = modes.get_unchecked_mut(count);
+                mode = modes.get_unchecked_mut(count);
                 mode.1 += 1;
                 if highest_mode < mode.1 {
                     highest_mode = mode.1;
@@ -287,7 +288,7 @@ where
             count += 1;
         }
     }
-    let mut modes_result: Vec<T> = Vec::new();
+    let mut modes_result: Vec<T> = Vec::with_capacity(modes.len());
     let mut modes_count = 0;
     for (val, cnt) in modes {
         if cnt == highest_mode && highest_mode > 1 {
@@ -305,8 +306,9 @@ where
 {
     let mut lowest_mode = u32::MAX;
     // to do some prealloc, without taking up too much memory
-    let mut antimodes: Vec<u32> = Vec::with_capacity(usize::min(size / 3, 10_000));
-    let mut values = Vec::with_capacity(usize::min(size / 3, 10_000));
+    let capacity = usize::min(size / 3, 10_000);
+    let mut antimodes: Vec<u32> = Vec::with_capacity(capacity);
+    let mut values = Vec::with_capacity(capacity);
     let mut count = 0;
     // safety: we know the index is within bounds, since we just added it
     // so we use get_unchecked to avoid bounds checking
