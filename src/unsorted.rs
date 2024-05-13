@@ -553,7 +553,7 @@ impl<T: PartialOrd> Default for Unsorted<T> {
     fn default() -> Unsorted<T> {
         Unsorted {
             data: Vec::with_capacity(10_000),
-            sorted: true,
+            sorted: true, // empty is sorted
         }
     }
 }
