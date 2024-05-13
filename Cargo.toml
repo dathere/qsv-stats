@@ -18,6 +18,8 @@ name = "stats"
 
 [dependencies]
 ahash = "0.8"
+num_cpus = "1"
 num-traits = "0.2"
 rayon = "1.10"
+ryu = "1"
 serde = { version = "1", features = ["derive"] }
