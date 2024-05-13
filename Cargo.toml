@@ -1,25 +1,25 @@
 [package]
-name = "qsv-stats"
-version = "0.16.0"  #:version
-authors = ["Joel Natividad <joel@dathere.com>"]
-description = "Computing summary statistics on streams."
+name          = "qsv-stats"
+version       = "0.16.0"                                            #:version
+authors       = ["Joel Natividad <joel@dathere.com>"]
+description   = "Computing summary statistics on streams."
 documentation = "https://docs.rs/qsv-stats"
-homepage = "https://github.com/jqnatividad/qsv-stats"
-repository = "https://github.com/jqnatividad/qsv-stats"
-readme = "README.md"
-keywords = ["statistics", "stats", "median", "mean", "stddev"]
-categories = ["science", "math"]
-license  = "MIT OR Unlicense"
-edition = "2021"
-rust-version = "1.78"
+homepage      = "https://github.com/jqnatividad/qsv-stats"
+repository    = "https://github.com/jqnatividad/qsv-stats"
+readme        = "README.md"
+keywords      = ["statistics", "stats", "median", "mean", "stddev"]
+categories    = ["science", "math"]
+license       = "MIT OR Unlicense"
+edition       = "2021"
+rust-version  = "1.78"
 
 [lib]
 name = "stats"
 
 [dependencies]
-ahash = "0.8"
-num_cpus = "1"
+ahash      = "0.8"
+num_cpus   = "1"
 num-traits = "0.2"
-rayon = "1.10"
-ryu = "1"
-serde = { version = "1", features = ["derive"] }
+rayon      = "1.10"
+ryu        = "1"
+serde      = { version = "1", features = ["derive"] }
