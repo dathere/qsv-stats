@@ -241,30 +241,28 @@ where
     use rayon::slice::ParallelSlice;
     use ryu::Buffer;
 
-    let chunk_size = std::cmp::max(data.len().div_ceil(num_cpus::get()), 1000);
+    let chunk_size = std::cmp::max(data.len().div_ceil(num_cpus::get()), 2000);
     data.par_chunks(chunk_size)
         .filter_map(|chunk| {
             let mut max_precision: u32 = 0;
-            let mut precision;
             let mut buffer = Buffer::new();
             let mut parts: Vec<&str>;
             let mut xf64: f64;
-            let mut fractpart;
+            let mut fractpart: &str;
 
             for x in chunk {
                 xf64 = x.to_f64().unwrap_or_default();
+
+                if xf64 <= f64::EPSILON {
+                    continue;
+                }
 
                 parts = buffer.format_finite(xf64).split('.').collect();
                 // safety: we know the index is within bounds, since we always have a valid float
                 // and there will always be two parts even with a zero decimal
                 fractpart = unsafe { parts.get_unchecked(1) };
-                precision = if *fractpart == "0" {
-                    0
-                } else {
-                    fractpart.len() as u32
-                };
-                if precision > max_precision {
-                    max_precision = precision;
+                if *fractpart != *"0" {
+                    max_precision = max_precision.max(fractpart.len() as u32);
                 }
             }
             if max_precision == 0 {
@@ -536,6 +534,7 @@ impl<T: PartialOrd + ToPrimitive> Unsorted<T> {
 impl<T: ToPrimitive> Unsorted<T> {
     /// Returns the max precision of the data.
     #[inline]
+    #[must_use]
     pub fn max_precision(self) -> Option<u32> {
         max_precision_unsorted(&self.data)
     }
