@@ -1,4 +1,8 @@
 use num_traits::ToPrimitive;
+use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
+use rayon::slice::{ParallelSlice, ParallelSliceMut};
+
+use ryu::Buffer;
 use serde::{Deserialize, Serialize};
 
 use {crate::Commute, crate::Partial};
@@ -134,21 +138,22 @@ where
 
 fn mad_on_sorted<T>(data: &[T], precalc_median: Option<f64>) -> Option<f64>
 where
-    T: PartialOrd + ToPrimitive,
+    T: Sync + PartialOrd + ToPrimitive,
 {
-    use rayon::slice::ParallelSliceMut;
-
     if data.is_empty() {
         return None;
     }
     let median_obs =
         precalc_median.map_or_else(|| median_on_sorted(data).unwrap(), |precalc| precalc);
 
-    let mut abs_diff_vec: Vec<f64> = Vec::with_capacity(data.len());
-    for x in data {
-        let val: f64 = x.to_f64().unwrap();
-        abs_diff_vec.push((median_obs - val).abs());
-    }
+    let mut abs_diff_vec: Vec<f64> = data
+        .par_iter()
+        .map(|x| {
+            let val: f64 = x.to_f64().unwrap();
+            (median_obs - val).abs()
+        })
+        .collect();
+
     abs_diff_vec.par_sort_unstable_by(|a, b| a.partial_cmp(b).unwrap());
     median_on_sorted(&abs_diff_vec)
 }
@@ -237,10 +242,6 @@ fn max_precision_unsorted<T>(data: &[T]) -> Option<u32>
 where
     T: ToPrimitive + Sync,
 {
-    use rayon::iter::ParallelIterator;
-    use rayon::slice::ParallelSlice;
-    use ryu::Buffer;
-
     // chunk_size is set to a minimum of 5000, as parallel chunking is only useful for large data sets
     let chunk_size = std::cmp::max(data.len().div_ceil(num_cpus::get()), 5000);
     data.par_chunks(chunk_size)
@@ -453,7 +454,6 @@ impl<T: PartialOrd> Unsorted<T> {
 
     #[inline]
     fn sort(&mut self) {
-        use rayon::slice::ParallelSliceMut;
         if !self.sorted {
             self.data.par_sort_unstable();
             self.sorted = true;
