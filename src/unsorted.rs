@@ -310,7 +310,7 @@ where
     mode
 }
 
-fn modes_on_sorted<T, I>(it: I, size: usize) -> (Vec<T>, usize, u32)
+fn modes_on_sorted<T, I>(mut it: I, size: usize) -> (Vec<T>, usize, u32)
 where
     T: PartialOrd,
     I: Iterator<Item = T>,
@@ -319,20 +319,21 @@ where
     let mut modes: Vec<(T, u32)> = Vec::with_capacity(usize::min(size / 3, 10_000));
     let mut mode;
     let mut count = 0;
+
+    if let Some(x) = it.next() {
+        modes.push((x, 1));
+    }
+
     for x in it {
-        if modes.is_empty() {
-            modes.push((x, 1));
-            continue;
-        }
         // safety: we know the index is within bounds, since we just added it
         // so we use get_unchecked to avoid bounds checking
         if unsafe { x == modes.get_unchecked(count).0 } {
             unsafe {
                 mode = modes.get_unchecked_mut(count);
-                mode.1 += 1;
-                if highest_mode < mode.1 {
-                    highest_mode = mode.1;
-                }
+            }
+            mode.1 += 1;
+            if highest_mode < mode.1 {
+                highest_mode = mode.1;
             }
         } else {
             modes.push((x, 1));
