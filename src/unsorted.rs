@@ -246,7 +246,7 @@ where
     let chunk_size = std::cmp::max(data.len().div_ceil(num_cpus::get()), 5000);
     data.par_chunks(chunk_size)
         .filter_map(|chunk| {
-            let mut max_precision: u32 = 0;
+            let mut max_precision: usize = 0;
             let mut buffer = Buffer::new();
             let mut fractpart: &str;
 
@@ -260,14 +260,14 @@ where
                     // we use next_back to get the fractional part
                     fractpart = buffer.format_finite(xf64).split('.').next_back().unwrap();
                     if *fractpart != *"0" {
-                        max_precision = max_precision.max(fractpart.len() as u32);
+                        max_precision = max_precision.max(fractpart.len());
                     }
                 }
             }
             if max_precision == 0 {
                 None
             } else {
-                Some(max_precision)
+                Some(max_precision as u32)
             }
         })
         .max()
