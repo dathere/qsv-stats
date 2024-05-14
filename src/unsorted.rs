@@ -351,7 +351,7 @@ where
     (modes_result, modes_count, highest_mode)
 }
 
-fn antimodes_on_sorted<T, I>(it: I, size: usize) -> (Vec<T>, usize, u32)
+fn antimodes_on_sorted<T, I>(mut it: I, size: usize) -> (Vec<T>, usize, u32)
 where
     T: PartialOrd,
     I: Iterator<Item = T>,
@@ -362,14 +362,16 @@ where
     let mut antimodes: Vec<u32> = Vec::with_capacity(capacity);
     let mut values = Vec::with_capacity(capacity);
     let mut count = 0;
+    let mut curr_antimode;
+
+    if let Some(first) = it.next() {
+        values.push(first);
+        antimodes.push(1);
+    }
+
     // safety: we know the index is within bounds, since we just added it
     // so we use get_unchecked to avoid bounds checking
     for x in it {
-        if values.is_empty() {
-            values.push(x);
-            antimodes.push(1);
-            continue;
-        }
         if unsafe { *values.get_unchecked(count) == x } {
             unsafe {
                 *antimodes.get_unchecked_mut(count) += 1;
@@ -377,8 +379,9 @@ where
         } else {
             values.push(x);
             antimodes.push(1);
-            if unsafe { lowest_mode > *antimodes.get_unchecked(count) } {
-                lowest_mode = unsafe { *antimodes.get_unchecked(count) };
+            unsafe { curr_antimode = *antimodes.get_unchecked(count) };
+            if lowest_mode > curr_antimode {
+                lowest_mode = curr_antimode;
             }
             count += 1;
         }
