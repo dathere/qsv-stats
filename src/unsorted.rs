@@ -1,8 +1,7 @@
 use num_traits::ToPrimitive;
 use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
-use rayon::slice::{ParallelSlice, ParallelSliceMut};
+use rayon::slice::ParallelSliceMut;
 
-use ryu::Buffer;
 use serde::{Deserialize, Serialize};
 
 use {crate::Commute, crate::Partial};
@@ -36,17 +35,6 @@ where
     <I as Iterator>::Item: PartialOrd + ToPrimitive,
 {
     it.collect::<Unsorted<_>>().quartiles()
-}
-
-/// Compute the max precision of a stream of data.
-///
-/// This is useful for when you want to know the maximum number of decimal places in a stream of data.
-pub fn max_precision<I>(it: I) -> Option<u32>
-where
-    I: Iterator,
-    <I as Iterator>::Item: PartialOrd + ToPrimitive,
-{
-    it.collect::<Unsorted<_>>().max_precision()
 }
 
 /// Compute the exact mode on a stream of data.
@@ -236,41 +224,6 @@ where
             }
         }
     })
-}
-
-fn max_precision_unsorted<T>(data: &[T]) -> Option<u32>
-where
-    T: ToPrimitive + Sync,
-{
-    // chunk_size is set to a minimum of 5000, as parallel chunking is only useful for large data sets
-    let chunk_size = std::cmp::max(data.len().div_ceil(num_cpus::get()), 5000);
-    data.par_chunks(chunk_size)
-        .filter_map(|chunk| {
-            let mut max_precision: usize = 0;
-            let mut buffer = Buffer::new();
-            let mut fractpart: &str;
-
-            for x in chunk {
-                if let Some(xf64) = x.to_f64() {
-                    if xf64 <= f64::EPSILON {
-                        continue;
-                    }
-                    // safety: since we always have a valid float
-                    // and there will always be a fract part even with a zero decimal
-                    // we use next_back to get the fractional part
-                    fractpart = buffer.format_finite(xf64).split('.').next_back().unwrap();
-                    if *fractpart != *"0" {
-                        max_precision = max_precision.max(fractpart.len());
-                    }
-                }
-            }
-            if max_precision == 0 {
-                None
-            } else {
-                Some(max_precision as u32)
-            }
-        })
-        .max()
 }
 
 fn mode_on_sorted<T, I>(it: I) -> Option<T>
@@ -533,15 +486,6 @@ impl<T: PartialOrd + ToPrimitive> Unsorted<T> {
     }
 }
 
-impl<T: ToPrimitive> Unsorted<T> {
-    /// Returns the max precision of the data.
-    #[inline]
-    #[must_use]
-    pub fn max_precision(self) -> Option<u32> {
-        max_precision_unsorted(&self.data)
-    }
-}
-
 impl<T: PartialOrd> Commute for Unsorted<T> {
     #[inline]
     fn merge(&mut self, v: Unsorted<T>) {
@@ -579,7 +523,7 @@ impl<T: PartialOrd> Extend<T> for Unsorted<T> {
 
 #[cfg(test)]
 mod test {
-    use super::{antimodes, mad, max_precision, median, mode, modes, quartiles};
+    use super::{antimodes, mad, median, mode, modes, quartiles};
 
     #[test]
     fn median_stream() {
@@ -810,54 +754,6 @@ mod test {
         assert_eq!(
             quartiles(vec![3_f64, 5., 7., 9., 12., 20., 21.].into_iter()),
             Some((5., 9., 20.))
-        );
-    }
-
-    #[test]
-    fn max_precision_floats() {
-        assert_eq!(max_precision(vec![3_f64, 5.0, 7.0].into_iter()), None);
-        assert_eq!(
-            max_precision(vec![3_f64, 5.0123, 7.0, 9.0].into_iter()),
-            Some(4)
-        );
-        assert_eq!(
-            max_precision(vec![3_f64, 5.01, 7.012, 9.02, 12.0].into_iter()),
-            Some(3)
-        );
-        assert_eq!(
-            max_precision(vec![3_f64, 5.0, 7.123, 9.1234, 12.0, 20.123456].into_iter()),
-            Some(6)
-        );
-        assert_eq!(
-            max_precision(vec![0_f64, 2.0, 4.9876, 8.0, 10.0, 11.123].into_iter()),
-            Some(4)
-        );
-        assert_eq!(
-            max_precision(vec![3_f64, 5.0, 7.0, 9.0, 12.0, 20.0, 21.0].into_iter()),
-            None
-        );
-        assert_eq!(
-            max_precision(vec![1_f64, 5.123, 6.0, 6.0, 7.123456, 10.12, 19.12345].into_iter()),
-            Some(6)
-        );
-    }
-
-    #[test]
-    fn max_precision_integers() {
-        assert_eq!(max_precision(vec![3u8, 5, 7].into_iter()), None);
-        assert_eq!(max_precision(vec![3i8, 5, -7, 9].into_iter()), None);
-        assert_eq!(max_precision(vec![3i16, 5, 7, 9, 12, 20].into_iter()), None);
-        assert_eq!(
-            max_precision(vec![0i32, -2, 4, 8, -10, 11].into_iter()),
-            None
-        );
-        assert_eq!(
-            max_precision(vec![3i64, 5, 7, -9, 12, 20, 21].into_iter()),
-            None
-        );
-        assert_eq!(
-            max_precision(vec![1i128, 5, 6, 6, -7, -10, 19].into_iter()),
-            None
         );
     }
 }
