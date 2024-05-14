@@ -427,7 +427,7 @@ where
 /// Note that this works on types that do not define a total ordering like
 /// `f32` and `f64`. When an ordering is not defined, an arbitrary order
 /// is returned.
-#[derive(Clone, Serialize, Deserialize, Eq, PartialEq, Debug)]
+#[derive(Clone, Serialize, Deserialize, Eq, PartialEq)]
 pub struct Unsorted<T> {
     data: Vec<Partial<T>>,
     sorted: bool,
