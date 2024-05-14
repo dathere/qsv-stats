@@ -241,28 +241,26 @@ where
     use rayon::slice::ParallelSlice;
     use ryu::Buffer;
 
-    let chunk_size = std::cmp::max(data.len().div_ceil(num_cpus::get()), 2000);
+    // chunk_size is set to a minimum of 5000, as parallel chunking is only useful for large data sets
+    let chunk_size = std::cmp::max(data.len().div_ceil(num_cpus::get()), 5000);
     data.par_chunks(chunk_size)
         .filter_map(|chunk| {
             let mut max_precision: u32 = 0;
             let mut buffer = Buffer::new();
-            let mut parts: Vec<&str>;
-            let mut xf64: f64;
             let mut fractpart: &str;
 
             for x in chunk {
-                xf64 = x.to_f64().unwrap_or_default();
-
-                if xf64 <= f64::EPSILON {
-                    continue;
-                }
-
-                parts = buffer.format_finite(xf64).split('.').collect();
-                // safety: we know the index is within bounds, since we always have a valid float
-                // and there will always be two parts even with a zero decimal
-                fractpart = unsafe { parts.get_unchecked(1) };
-                if *fractpart != *"0" {
-                    max_precision = max_precision.max(fractpart.len() as u32);
+                if let Some(xf64) = x.to_f64() {
+                    if xf64 <= f64::EPSILON {
+                        continue;
+                    }
+                    // safety: since we always have a valid float
+                    // and there will always be a fract part even with a zero decimal
+                    // we use next_back to get the fractional part
+                    fractpart = buffer.format_finite(xf64).split('.').next_back().unwrap();
+                    if *fractpart != *"0" {
+                        max_precision = max_precision.max(fractpart.len() as u32);
+                    }
                 }
             }
             if max_precision == 0 {
@@ -813,7 +811,7 @@ mod test {
 
     #[test]
     fn max_precision_floats() {
-        assert_eq!(max_precision(vec![3_f32, 5.0, 7.0].into_iter()), None);
+        assert_eq!(max_precision(vec![3_f64, 5.0, 7.0].into_iter()), None);
         assert_eq!(
             max_precision(vec![3_f64, 5.0123, 7.0, 9.0].into_iter()),
             Some(4)
