@@ -1,17 +1,26 @@
-use std::fmt;
-
 use serde::{Deserialize, Serialize};
+use std::fmt;
 
 use crate::Commute;
 
-/// A commutative data structure for tracking minimum and maximum values.
-///
-/// This also stores the number of samples.
-#[derive(Clone, Deserialize, Serialize, Eq, PartialEq)]
+/// Represents the current sort order of the data.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, Serialize)]
+pub enum SortOrder {
+    Unsorted,
+    Ascending,
+    Descending,
+}
+
+/// A commutative data structure for tracking minimum and maximum values
+/// and detecting sort order in a stream of data.
+#[derive(Clone, Copy, Deserialize, Serialize, Eq, PartialEq)]
 pub struct MinMax<T> {
     len: u64,
     min: Option<T>,
     max: Option<T>,
+    sort_order: SortOrder,
+    first_value: Option<T>, // Tracks the first value added
+    last_value: Option<T>,  // Tracks the last value added
 }
 
 impl<T: PartialOrd + Clone> MinMax<T> {
@@ -21,10 +30,51 @@ impl<T: PartialOrd + Clone> MinMax<T> {
         Default::default()
     }
 
-    /// Add a sample to the data.
+    /// Add a sample to the data and update the sort order.
     #[inline]
     pub fn add(&mut self, sample: T) {
         self.len += 1;
+
+        if self.len > 2 {
+            // Third or more value, update sort order based on last value
+            if let Some(ref last) = self.last_value {
+                match self.sort_order {
+                    SortOrder::Unsorted => {}
+                    SortOrder::Ascending => {
+                        if sample < *last {
+                            self.sort_order = SortOrder::Unsorted;
+                        }
+                    }
+                    SortOrder::Descending => {
+                        if sample > *last {
+                            self.sort_order = SortOrder::Unsorted;
+                        }
+                    }
+                }
+            }
+            self.last_value = Some(sample.clone());
+        } else if self.len == 1 {
+            // First value added
+            self.first_value = Some(sample.clone());
+            self.last_value = Some(sample.clone());
+            self.min = Some(sample.clone());
+            self.max = Some(sample);
+            self.sort_order = SortOrder::Unsorted;
+            return;
+        } else {
+            // Second value (self.len == 2), determine initial sort order
+            self.last_value = Some(sample.clone());
+            if let Some(ref first) = self.first_value {
+                if sample >= *first {
+                    self.sort_order = SortOrder::Ascending;
+                } else if sample < *first {
+                    self.sort_order = SortOrder::Descending;
+                } else {
+                    self.sort_order = SortOrder::Unsorted;
+                }
+            }
+        }
+
         if self.min.as_ref().map_or(true, |v| &sample < v) {
             self.min = Some(sample.clone());
         }
@@ -64,6 +114,13 @@ impl<T: PartialOrd + Clone> MinMax<T> {
     pub const fn is_empty(&self) -> bool {
         self.len == 0
     }
+
+    /// Returns the current sort order of the data.
+    #[inline]
+    #[must_use]
+    pub const fn sort_order(&self) -> SortOrder {
+        self.sort_order
+    }
 }
 
 impl<T: PartialOrd> Commute for MinMax<T> {
@@ -76,6 +133,22 @@ impl<T: PartialOrd> Commute for MinMax<T> {
         if self.max.is_none() || (v.max.is_some() && v.max > self.max) {
             self.max = v.max;
         }
+
+        // Merge sort order logic
+        if self.sort_order == SortOrder::Unsorted
+            || v.sort_order == SortOrder::Unsorted
+            || self.sort_order != v.sort_order
+        {
+            self.sort_order = SortOrder::Unsorted;
+        }
+
+        // Handle merging of first_value and last_value
+        if self.len > 1 && v.len > 0 {
+            if self.first_value.is_none() {
+                self.first_value = v.first_value;
+            }
+            self.last_value = v.last_value;
+        }
     }
 }
 
@@ -86,6 +159,9 @@ impl<T: PartialOrd> Default for MinMax<T> {
             len: 0,
             min: None,
             max: None,
+            sort_order: SortOrder::Unsorted, // Start with Unsorted by default
+            first_value: None,
+            last_value: None,
         }
     }
 }
@@ -96,10 +172,21 @@ impl<T: fmt::Debug> fmt::Debug for MinMax<T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match (&self.min, &self.max) {
             (Some(min), Some(max)) => {
-                write!(f, "[{min:?}, {max:?}]")
+                write!(f, "[{min:?}, {max:?}], sort_order: {:?}", self.sort_order)
             }
             (&None, &None) => write!(f, "N/A"),
             _ => unreachable!(),
+        }
+    }
+}
+
+impl fmt::Display for SortOrder {
+    #[inline]
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            SortOrder::Unsorted => write!(f, "Unsorted"),
+            SortOrder::Ascending => write!(f, "Ascending"),
+            SortOrder::Descending => write!(f, "Descending"),
         }
     }
 }
@@ -124,7 +211,7 @@ impl<T: PartialOrd + Clone> Extend<T> for MinMax<T> {
 
 #[cfg(test)]
 mod test {
-    use super::MinMax;
+    use super::{MinMax, SortOrder};
     use crate::Commute;
 
     #[test]
@@ -132,12 +219,30 @@ mod test {
         let minmax: MinMax<u32> = vec![1u32, 4, 2, 3, 10].into_iter().collect();
         assert_eq!(minmax.min(), Some(&1u32));
         assert_eq!(minmax.max(), Some(&10u32));
+        assert_eq!(minmax.sort_order(), SortOrder::Unsorted);
+    }
+
+    #[test]
+    fn minmax_sorted_ascending() {
+        let minmax: MinMax<u32> = vec![1u32, 2, 3, 4, 5].into_iter().collect();
+        assert_eq!(minmax.min(), Some(&1u32));
+        assert_eq!(minmax.max(), Some(&5u32));
+        assert_eq!(minmax.sort_order(), SortOrder::Ascending);
+    }
+
+    #[test]
+    fn minmax_sorted_descending() {
+        let minmax: MinMax<u32> = vec![5u32, 4, 3, 2, 1].into_iter().collect();
+        assert_eq!(minmax.min(), Some(&1u32));
+        assert_eq!(minmax.max(), Some(&5u32));
+        assert_eq!(minmax.sort_order(), SortOrder::Descending);
     }
 
     #[test]
     fn minmax_empty() {
         let minmax: MinMax<u32> = MinMax::new();
         assert!(minmax.is_empty());
+        assert_eq!(minmax.sort_order(), SortOrder::Unsorted);
     }
 
     #[test]
@@ -145,9 +250,45 @@ mod test {
         let mut mx1: MinMax<u32> = vec![1, 4, 2, 3, 10].into_iter().collect();
         assert_eq!(mx1.min(), Some(&1u32));
         assert_eq!(mx1.max(), Some(&10u32));
+        assert_eq!(mx1.sort_order(), SortOrder::Unsorted);
 
         mx1.merge(MinMax::default());
         assert_eq!(mx1.min(), Some(&1u32));
         assert_eq!(mx1.max(), Some(&10u32));
+        assert_eq!(mx1.sort_order(), SortOrder::Unsorted);
+    }
+
+    #[test]
+    fn minmax_merge_diffsorts() {
+        let mut mx1: MinMax<u32> = vec![1, 2, 2, 2, 3, 3, 4, 10].into_iter().collect();
+        assert_eq!(mx1.min(), Some(&1u32));
+        assert_eq!(mx1.max(), Some(&10u32));
+        assert_eq!(mx1.sort_order(), SortOrder::Ascending);
+
+        let mx2: MinMax<u32> = vec![5, 4, 3, 2, 1].into_iter().collect();
+        assert_eq!(mx2.min(), Some(&1u32));
+        assert_eq!(mx2.max(), Some(&5u32));
+        assert_eq!(mx2.sort_order(), SortOrder::Descending);
+        mx1.merge(mx2);
+        assert_eq!(mx1.min(), Some(&1u32));
+        assert_eq!(mx1.max(), Some(&10u32));
+        assert_eq!(mx1.sort_order(), SortOrder::Unsorted);
+    }
+
+    #[test]
+    fn minmax_merge_asc_sorts() {
+        let mut mx1: MinMax<u32> = vec![2, 2, 2, 5, 10].into_iter().collect();
+        assert_eq!(mx1.min(), Some(&2u32));
+        assert_eq!(mx1.max(), Some(&10u32));
+        assert_eq!(mx1.sort_order(), SortOrder::Ascending);
+
+        let mx2: MinMax<u32> = vec![11, 14, 23, 32, 41].into_iter().collect();
+        assert_eq!(mx2.min(), Some(&11u32));
+        assert_eq!(mx2.max(), Some(&41u32));
+        assert_eq!(mx2.sort_order(), SortOrder::Ascending);
+        mx1.merge(mx2);
+        assert_eq!(mx1.min(), Some(&2u32));
+        assert_eq!(mx1.max(), Some(&41u32));
+        assert_eq!(mx1.sort_order(), SortOrder::Ascending);
     }
 }
