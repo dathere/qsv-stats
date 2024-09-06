@@ -120,7 +120,8 @@ where
             let v2 = data.get(idx)?.to_f64().unwrap();
             (v1 + v2) / 2.0
         }
-        len => data.get(len / 2)?.to_f64().unwrap(),
+        // Safety: we know the index is within bounds
+        len => unsafe { data.get_unchecked(len / 2) }.to_f64().unwrap(),
     })
 }
 
@@ -395,7 +396,7 @@ impl<T: PartialOrd> Unsorted<T> {
     }
 
     /// Add a new element to the set.
-    #[inline]
+    #[inline(always)]
     pub fn add(&mut self, v: T) {
         self.sorted = false;
         self.data.push(Partial(v));
