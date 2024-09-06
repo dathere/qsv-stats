@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use std::cmp::Ordering;
 use std::fmt;
 
 use crate::Commute;
@@ -16,9 +17,9 @@ pub enum SortOrder {
 #[derive(Clone, Copy, Deserialize, Serialize, Eq, PartialEq)]
 pub struct MinMax<T> {
     len: u64,
+    sort_order: SortOrder,
     min: Option<T>,
     max: Option<T>,
-    sort_order: SortOrder,
     first_value: Option<T>, // Tracks the first value added
     last_value: Option<T>,  // Tracks the last value added
 }
@@ -65,13 +66,11 @@ impl<T: PartialOrd + Clone> MinMax<T> {
             // Second value (self.len == 2), determine initial sort order
             self.last_value = Some(sample.clone());
             if let Some(ref first) = self.first_value {
-                if sample >= *first {
-                    self.sort_order = SortOrder::Ascending;
-                } else if sample < *first {
-                    self.sort_order = SortOrder::Descending;
-                } else {
-                    self.sort_order = SortOrder::Unsorted;
-                }
+                self.sort_order = match sample.partial_cmp(first) {
+                    Some(Ordering::Greater) | Some(Ordering::Equal) => SortOrder::Ascending,
+                    Some(Ordering::Less) => SortOrder::Descending,
+                    None => SortOrder::Unsorted,
+                };
             }
         }
 
@@ -157,9 +156,9 @@ impl<T: PartialOrd> Default for MinMax<T> {
     fn default() -> MinMax<T> {
         MinMax {
             len: 0,
+            sort_order: SortOrder::Unsorted, // Start with Unsorted by default
             min: None,
             max: None,
-            sort_order: SortOrder::Unsorted, // Start with Unsorted by default
             first_value: None,
             last_value: None,
         }
