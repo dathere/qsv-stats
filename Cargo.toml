@@ -21,3 +21,6 @@ ahash      = "0.8"
 num-traits = "0.2"
 rayon      = "1.10"
 serde      = { version = "1", features = ["derive"] }
+
+[features]
+nightly = []
