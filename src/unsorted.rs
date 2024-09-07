@@ -232,6 +232,8 @@ where
     T: PartialOrd,
     I: Iterator<Item = T>,
 {
+    use std::cmp::Ordering;
+
     // This approach to computing the mode works very nicely when the
     // number of samples is large and is close to its cardinality.
     // In other cases, a hashmap would be much better.
@@ -250,15 +252,18 @@ where
             next_count = 0;
         }
 
-        #[allow(clippy::comparison_chain)]
-        if next_count > mode_count {
-            mode = next;
-            mode_count = next_count;
-            next = None;
-            next_count = 0;
-        } else if next_count == mode_count {
-            mode = None;
-            mode_count = 0;
+        match next_count.cmp(&mode_count) {
+            Ordering::Greater => {
+                mode = next;
+                mode_count = next_count;
+                next = None;
+                next_count = 0;
+            }
+            Ordering::Equal => {
+                mode = None;
+                mode_count = 0;
+            }
+            Ordering::Less => {}
         }
     }
     mode
@@ -294,14 +299,16 @@ where
             count += 1;
         }
     }
+
     let mut modes_result: Vec<T> = Vec::with_capacity(modes.len());
-    let mut modes_count = 0;
-    for (val, cnt) in modes {
-        if cnt == highest_mode && highest_mode > 1 {
-            modes_result.push(val);
-            modes_count += 1;
+    if highest_mode > 1 {
+        for (val, cnt) in modes {
+            if cnt == highest_mode {
+                modes_result.push(val);
+            }
         }
     }
+    let modes_count = modes_result.len();
     (modes_result, modes_count, highest_mode)
 }
 
@@ -348,28 +355,29 @@ where
     let mut antimodes_result_ctr: u8 = 0;
     let mut keep_count = true;
 
-    let antimodes_count = antimodes
-        .into_iter()
-        .zip(values)
-        .filter(|(cnt, _val)| *cnt == lowest_mode && lowest_mode < u32::MAX)
-        .map(|(_, val)| {
-            // we only keep the first 10 antimodes and we do this as we do not want to store
-            // antimode values more than 10 we'll throw away immediately anyway,
-            // especially if the cardinality of a column is high,
-            // where there will be a lot of antimodes
-            if keep_count {
-                antimodes_result.push(val);
-                antimodes_result_ctr += 1;
-                if antimodes_result_ctr == 10 {
-                    keep_count = false;
-                }
-            }
-        })
-        .count();
-
-    if lowest_mode == u32::MAX {
+    let antimodes_count = if lowest_mode == u32::MAX {
         lowest_mode = 0;
-    }
+        0
+    } else {
+        antimodes
+            .into_iter()
+            .zip(values)
+            .filter(|(cnt, _val)| *cnt == lowest_mode)
+            .map(|(_, val)| {
+                // we only keep the first 10 antimodes and we do this as we do not want to store
+                // antimode values more than 10 we'll throw away immediately anyway,
+                // especially if the cardinality of a column is high,
+                // where there will be a lot of antimodes
+                if keep_count {
+                    antimodes_result.push(val);
+                    antimodes_result_ctr += 1;
+                    if antimodes_result_ctr == 10 {
+                        keep_count = false;
+                    }
+                }
+            })
+            .count()
+    };
 
     (antimodes_result, antimodes_count, lowest_mode)
 }
@@ -405,9 +413,14 @@ impl<T: PartialOrd> Unsorted<T> {
     /// Return the number of data points.
     #[inline]
     #[must_use]
-    #[allow(clippy::len_without_is_empty)]
     pub fn len(&self) -> usize {
         self.data.len()
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.data.is_empty()
     }
 
     #[inline]
@@ -422,6 +435,9 @@ impl<T: PartialOrd> Unsorted<T> {
 impl<T: PartialOrd + Eq + Clone> Unsorted<T> {
     #[inline]
     pub fn cardinality(&mut self) -> usize {
+        if self.data.is_empty() {
+            return 0;
+        }
         self.sort();
         let mut set = self.data.clone();
         set.dedup();
@@ -433,6 +449,9 @@ impl<T: PartialOrd + Clone> Unsorted<T> {
     /// Returns the mode of the data.
     #[inline]
     pub fn mode(&mut self) -> Option<T> {
+        if self.data.is_empty() {
+            return None;
+        }
         self.sort();
         mode_on_sorted(self.data.iter()).map(|p| p.0.clone())
     }
@@ -440,6 +459,9 @@ impl<T: PartialOrd + Clone> Unsorted<T> {
     /// Returns the modes of the data.
     #[inline]
     pub fn modes(&mut self) -> (Vec<T>, usize, u32) {
+        if self.data.is_empty() {
+            return (Vec::new(), 0, 0);
+        }
         self.sort();
         let (modes_vec, modes_count, occurrences) = modes_on_sorted(self.data.iter(), self.len());
         let modes_result = modes_vec.into_iter().map(|p| p.0.clone()).collect();
@@ -449,6 +471,9 @@ impl<T: PartialOrd + Clone> Unsorted<T> {
     /// Returns the antimodes of the data.
     #[inline]
     pub fn antimodes(&mut self) -> (Vec<T>, usize, u32) {
+        if self.data.is_empty() {
+            return (Vec::new(), 0, 0);
+        }
         self.sort();
         let (antimodes_vec, antimodes_count, occurrences) =
             antimodes_on_sorted(self.data.iter(), self.len());
@@ -462,6 +487,9 @@ impl<T: PartialOrd + ToPrimitive> Unsorted<T> {
     /// Returns the median of the data.
     #[inline]
     pub fn median(&mut self) -> Option<f64> {
+        if self.data.is_empty() {
+            return None;
+        }
         self.sort();
         median_on_sorted(&self.data)
     }
@@ -471,6 +499,9 @@ impl<T: PartialOrd + ToPrimitive> Unsorted<T> {
     /// Returns the MAD of the data.
     #[inline]
     pub fn mad(&mut self, existing_median: Option<f64>) -> Option<f64> {
+        if self.data.is_empty() {
+            return None;
+        }
         if existing_median.is_none() {
             self.sort();
         }
@@ -482,6 +513,9 @@ impl<T: PartialOrd + ToPrimitive> Unsorted<T> {
     /// Returns the quartiles of the data.
     #[inline]
     pub fn quartiles(&mut self) -> Option<(f64, f64, f64)> {
+        if self.data.is_empty() {
+            return None;
+        }
         self.sort();
         quartiles_on_sorted(&self.data)
     }
@@ -489,9 +523,10 @@ impl<T: PartialOrd + ToPrimitive> Unsorted<T> {
 
 impl<T: PartialOrd> Commute for Unsorted<T> {
     #[inline]
-    fn merge(&mut self, v: Unsorted<T>) {
+    fn merge(&mut self, mut v: Unsorted<T>) {
         self.sorted = false;
-        self.data.extend(v.data);
+        // we use std::mem::take to avoid unnecessary allocations
+        self.data.extend(std::mem::take(&mut v.data));
     }
 }
 
