@@ -67,7 +67,7 @@ impl<T: PartialOrd + Clone> MinMax<T> {
             self.last_value = Some(sample.clone());
             if let Some(ref first) = self.first_value {
                 self.sort_order = match sample.partial_cmp(first) {
-                    Some(Ordering::Greater) | Some(Ordering::Equal) => SortOrder::Ascending,
+                    Some(Ordering::Greater | Ordering::Equal) => SortOrder::Ascending,
                     Some(Ordering::Less) => SortOrder::Descending,
                     None => SortOrder::Unsorted,
                 };
