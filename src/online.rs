@@ -52,7 +52,7 @@ impl OnlineStats {
         Default::default()
     }
 
-    /// Initializes variance from a sample.
+    /// Initializes OnlineStats from a sample.
     #[must_use]
     pub fn from_slice<T: ToPrimitive>(samples: &[T]) -> OnlineStats {
         samples.iter().map(|n| n.to_f64().unwrap()).collect()
@@ -71,7 +71,6 @@ impl OnlineStats {
     }
 
     /// Return the current variance.
-    // TODO: look into alternate algorithms for calculating variance
     // https://en.wikipedia.org/wiki/Algorithms_for_calculating_variance
     #[must_use]
     pub fn variance(&self) -> f64 {
@@ -114,7 +113,18 @@ impl OnlineStats {
     #[inline]
     #[must_use]
     pub const fn is_empty(&self) -> bool {
-        self.size == 0
+        #[cfg(feature = "nightly")]
+        {
+            if std::intrinsics::likely(self.size != 0) {
+                false
+            } else {
+                true
+            }
+        }
+        #[cfg(not(feature = "nightly"))]
+        {
+            self.size == 0
+        }
     }
 }
 
@@ -134,7 +144,9 @@ impl Commute for OnlineStats {
         */
         self.mean = s1.mul_add(self.mean, s2 * v.mean) / (s1 + s2);
 
-        self.q += v.q + meandiffsq * s1 * s2 / (s1 + s2);
+        // self.q += v.q + meandiffsq * s1 * s2 / (s1 + s2);
+        // below is the fused multiply add version of the statement above
+        self.q += v.q + f64::mul_add(meandiffsq, s1 * s2 / (s1 + s2), 0.0);
     }
 }
 
