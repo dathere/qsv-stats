@@ -1,5 +1,6 @@
 use num_traits::ToPrimitive;
 use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
+use rayon::prelude::ParallelSlice;
 use rayon::slice::ParallelSliceMut;
 
 use serde::{Deserialize, Serialize};
@@ -440,9 +441,21 @@ impl<T: PartialOrd> Unsorted<T> {
 
 impl<T: PartialOrd + PartialEq + Clone> Unsorted<T> {
     #[inline]
-    pub fn cardinality(&mut self, sorted: bool) -> u64 {
-        if self.data.is_empty() {
-            return 0;
+    /// Returns the cardinality of the data.
+    /// Set `sorted` to `true` if the data is already sorted.
+    /// Set `parallel_threshold` to `0` to force sequential processing.
+    /// Set `parallel_threshold` to `1` to use the default parallel threshold (`10_000`).
+    /// Set `parallel_threshold` to `2` to force parallel processing.
+    /// Set `parallel_threshold` to any other value to use a custom parallel threshold
+    /// greater than the default threshold of `10_000`.
+    pub fn cardinality(&mut self, sorted: bool, parallel_threshold: usize) -> u64 {
+        const DEFAULT_PARALLEL_THRESHOLD: usize = 10_000;
+
+        let len = self.data.len();
+        match len {
+            0 => return 0,
+            1 => return 1,
+            _ => {}
         }
 
         if sorted {
@@ -451,16 +464,30 @@ impl<T: PartialOrd + PartialEq + Clone> Unsorted<T> {
             self.sort();
         }
 
-        let mut unique_count = 0;
-        let mut last_item = None;
-        for item in &self.data {
-            if Some(item) != last_item {
-                unique_count += 1;
-                last_item = Some(item);
-            }
-        }
+        let use_parallel = parallel_threshold != 0
+            && (parallel_threshold == 1
+                || len > parallel_threshold.max(DEFAULT_PARALLEL_THRESHOLD));
 
-        unique_count
+        if use_parallel {
+            // Parallel processing
+            self.data
+                .par_windows(2)
+                .map(|window| u64::from(window[0] != window[1]))
+                .sum::<u64>()
+                + 1
+        } else {
+            // Sequential processing
+            self.data
+                .iter()
+                .fold((0, None), |(count, last), item| {
+                    if Some(item) != last {
+                        (count + 1, Some(item))
+                    } else {
+                        (count, last)
+                    }
+                })
+                .0
+        }
     }
 }
 
@@ -583,42 +610,49 @@ mod test {
     #[test]
     fn test_cardinality_empty() {
         let mut unsorted: Unsorted<i32> = Unsorted::new();
-        assert_eq!(unsorted.cardinality(false), 0);
+        assert_eq!(unsorted.cardinality(false, 1), 0);
     }
 
     #[test]
     fn test_cardinality_single_element() {
         let mut unsorted = Unsorted::new();
         unsorted.add(5);
-        assert_eq!(unsorted.cardinality(false), 1);
+        assert_eq!(unsorted.cardinality(false, 1), 1);
     }
 
     #[test]
     fn test_cardinality_unique_elements() {
         let mut unsorted = Unsorted::new();
         unsorted.extend(vec![1, 2, 3, 4, 5]);
-        assert_eq!(unsorted.cardinality(false), 5);
+        assert_eq!(unsorted.cardinality(false, 1), 5);
     }
 
     #[test]
     fn test_cardinality_duplicate_elements() {
         let mut unsorted = Unsorted::new();
         unsorted.extend(vec![1, 2, 2, 3, 3, 3, 4, 4, 4, 4]);
-        assert_eq!(unsorted.cardinality(false), 4);
+        assert_eq!(unsorted.cardinality(false, 1), 4);
     }
 
     #[test]
     fn test_cardinality_all_same() {
         let mut unsorted = Unsorted::new();
         unsorted.extend(vec![1; 100]);
-        assert_eq!(unsorted.cardinality(false), 1);
+        assert_eq!(unsorted.cardinality(false, 1), 1);
     }
 
     #[test]
     fn test_cardinality_large_range() {
         let mut unsorted = Unsorted::new();
         unsorted.extend(0..1_000_000);
-        assert_eq!(unsorted.cardinality(false), 1_000_000);
+        assert_eq!(unsorted.cardinality(false, 1), 1_000_000);
+    }
+
+    #[test]
+    fn test_cardinality_large_range_sequential() {
+        let mut unsorted = Unsorted::new();
+        unsorted.extend(0..1_000_000);
+        assert_eq!(unsorted.cardinality(false, 2_000_000), 1_000_000);
     }
 
     #[test]
@@ -626,21 +660,21 @@ mod test {
         let mut unsorted = Unsorted::new();
         unsorted.extend(vec![1, 2, 3, 4, 5]);
         unsorted.sort();
-        assert_eq!(unsorted.cardinality(true), 5);
+        assert_eq!(unsorted.cardinality(true, 1), 5);
     }
 
     #[test]
     fn test_cardinality_float() {
         let mut unsorted = Unsorted::new();
         unsorted.extend(vec![1.0, 1.0, 2.0, 3.0, 3.0, 4.0]);
-        assert_eq!(unsorted.cardinality(false), 4);
+        assert_eq!(unsorted.cardinality(false, 1), 4);
     }
 
     #[test]
     fn test_cardinality_string() {
         let mut unsorted = Unsorted::new();
         unsorted.extend(vec!["a", "b", "b", "c", "c", "c"].into_iter());
-        assert_eq!(unsorted.cardinality(false), 3);
+        assert_eq!(unsorted.cardinality(false, 1), 3);
     }
     #[test]
     fn median_stream() {
