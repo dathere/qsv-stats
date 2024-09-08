@@ -52,7 +52,7 @@ impl OnlineStats {
         Default::default()
     }
 
-    /// Initializes OnlineStats from a sample.
+    /// Initializes `OnlineStats` from a sample.
     #[must_use]
     pub fn from_slice<T: ToPrimitive>(samples: &[T]) -> OnlineStats {
         samples.iter().map(|n| n.to_f64().unwrap()).collect()
