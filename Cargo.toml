@@ -1,13 +1,13 @@
 [package]
 name          = "qsv-stats"
-version       = "0.20.0"                                            #:version
+version       = "0.21.0"                                            #:version
 authors       = ["Joel Natividad <joel@dathere.com>"]
 description   = "Computing summary statistics on streams."
 documentation = "https://docs.rs/qsv-stats"
 homepage      = "https://github.com/jqnatividad/qsv-stats"
 repository    = "https://github.com/jqnatividad/qsv-stats"
 readme        = "README.md"
-keywords      = ["statistics", "stats", "frequency", "mean", "stddev"]
+keywords      = ["statistics", "frequency", "mean", "stddev", "quartiles"]
 categories    = ["science", "mathematics"]
 license       = "MIT OR Unlicense"
 edition       = "2021"
