@@ -578,8 +578,70 @@ impl<T: PartialOrd> Extend<T> for Unsorted<T> {
 
 #[cfg(test)]
 mod test {
-    use super::{antimodes, mad, median, mode, modes, quartiles};
+    use super::*;
 
+    #[test]
+    fn test_cardinality_empty() {
+        let mut unsorted: Unsorted<i32> = Unsorted::new();
+        assert_eq!(unsorted.cardinality(false), 0);
+    }
+
+    #[test]
+    fn test_cardinality_single_element() {
+        let mut unsorted = Unsorted::new();
+        unsorted.add(5);
+        assert_eq!(unsorted.cardinality(false), 1);
+    }
+
+    #[test]
+    fn test_cardinality_unique_elements() {
+        let mut unsorted = Unsorted::new();
+        unsorted.extend(vec![1, 2, 3, 4, 5]);
+        assert_eq!(unsorted.cardinality(false), 5);
+    }
+
+    #[test]
+    fn test_cardinality_duplicate_elements() {
+        let mut unsorted = Unsorted::new();
+        unsorted.extend(vec![1, 2, 2, 3, 3, 3, 4, 4, 4, 4]);
+        assert_eq!(unsorted.cardinality(false), 4);
+    }
+
+    #[test]
+    fn test_cardinality_all_same() {
+        let mut unsorted = Unsorted::new();
+        unsorted.extend(vec![1; 100]);
+        assert_eq!(unsorted.cardinality(false), 1);
+    }
+
+    #[test]
+    fn test_cardinality_large_range() {
+        let mut unsorted = Unsorted::new();
+        unsorted.extend(0..1_000_000);
+        assert_eq!(unsorted.cardinality(false), 1_000_000);
+    }
+
+    #[test]
+    fn test_cardinality_presorted() {
+        let mut unsorted = Unsorted::new();
+        unsorted.extend(vec![1, 2, 3, 4, 5]);
+        unsorted.sort();
+        assert_eq!(unsorted.cardinality(true), 5);
+    }
+
+    #[test]
+    fn test_cardinality_float() {
+        let mut unsorted = Unsorted::new();
+        unsorted.extend(vec![1.0, 1.0, 2.0, 3.0, 3.0, 4.0]);
+        assert_eq!(unsorted.cardinality(false), 4);
+    }
+
+    #[test]
+    fn test_cardinality_string() {
+        let mut unsorted = Unsorted::new();
+        unsorted.extend(vec!["a", "b", "b", "c", "c", "c"].into_iter());
+        assert_eq!(unsorted.cardinality(false), 3);
+    }
     #[test]
     fn median_stream() {
         assert_eq!(median(vec![3usize, 5, 7, 9].into_iter()), Some(6.0));
