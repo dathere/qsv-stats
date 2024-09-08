@@ -404,7 +404,8 @@ impl<T: PartialOrd> Unsorted<T> {
     }
 
     /// Add a new element to the set.
-    #[inline(always)]
+    #[allow(clippy::inline_always)]
+    #[inline]
     pub fn add(&mut self, v: T) {
         self.sorted = false;
         self.data.push(Partial(v));
@@ -430,18 +431,36 @@ impl<T: PartialOrd> Unsorted<T> {
             self.sorted = true;
         }
     }
+
+    #[inline]
+    fn already_sorted(&mut self) {
+        self.sorted = true;
+    }
 }
 
-impl<T: PartialOrd + Eq + Clone> Unsorted<T> {
+impl<T: PartialOrd + PartialEq + Clone> Unsorted<T> {
     #[inline]
-    pub fn cardinality(&mut self) -> usize {
+    pub fn cardinality(&mut self, sorted: bool) -> u64 {
         if self.data.is_empty() {
             return 0;
         }
-        self.sort();
-        let mut set = self.data.clone();
-        set.dedup();
-        set.len()
+
+        if sorted {
+            self.already_sorted();
+        } else {
+            self.sort();
+        }
+
+        let mut unique_count = 0;
+        let mut last_item = None;
+        for item in &self.data {
+            if Some(item) != last_item {
+                unique_count += 1;
+                last_item = Some(item);
+            }
+        }
+
+        unique_count
     }
 }
 
