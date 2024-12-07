@@ -171,6 +171,76 @@ impl<T: Eq + Hash> Frequencies<T> {
             data_keys: self.data.keys(),
         }
     }
+
+    /// Get the top N most frequent items without sorting the entire vector
+    /// This is much faster than most_frequent() when you only need a few items
+    pub fn top_n(&self, n: usize) -> Vec<(&T, u64)>
+    where
+        T: Ord,
+    {
+        use std::collections::BinaryHeap;
+
+        // We use a min-heap of size n to keep track of the largest elements
+        let mut heap = BinaryHeap::with_capacity(n + 1);
+
+        for (item, count) in &self.data {
+            // Negate count because BinaryHeap is a max-heap
+            // and we want to remove smallest elements
+            heap.push(std::cmp::Reverse((*count, item)));
+
+            // Keep heap size at n
+            if heap.len() > n {
+                heap.pop();
+            }
+        }
+
+        // Convert to sorted vector
+        heap.into_sorted_vec()
+            .into_iter()
+            .map(|std::cmp::Reverse((count, item))| (item, count))
+            .collect()
+    }
+
+    /// Similar to top_n but for least frequent items
+    pub fn bottom_n(&self, n: usize) -> Vec<(&T, u64)>
+    where
+        T: Ord,
+    {
+        use std::collections::BinaryHeap;
+
+        let mut heap = BinaryHeap::with_capacity(n + 1);
+
+        for (item, count) in &self.data {
+            heap.push((*count, item));
+            if heap.len() > n {
+                heap.pop();
+            }
+        }
+
+        heap.into_sorted_vec()
+            .into_iter()
+            .map(|(count, item)| (item, count))
+            .collect()
+    }
+
+    /// Get items with exactly n occurrences
+    pub fn items_with_count(&self, n: u64) -> Vec<&T> {
+        self.data
+            .iter()
+            .filter(|(_, &count)| count == n)
+            .map(|(item, _)| item)
+            .collect()
+    }
+
+    /// Get the sum of all counts
+    pub fn total_count(&self) -> u64 {
+        self.data.values().sum()
+    }
+
+    /// Check if any item occurs exactly n times
+    pub fn has_count(&self, n: u64) -> bool {
+        self.data.values().any(|&count| count == n)
+    }
 }
 
 impl<T: Eq + Hash> Commute for Frequencies<T> {
@@ -264,5 +334,52 @@ mod test {
         let mut unique: Vec<isize> = freqs.unique_values().copied().collect();
         unique.sort_unstable();
         assert_eq!(unique, vec![1, 2, 3, 4, 5, 6, 7, 8]);
+    }
+
+    #[test]
+    fn test_top_n() {
+        let mut freq = Frequencies::new();
+        freq.extend(vec![1, 1, 1, 2, 2, 3, 4, 4, 4, 4]);
+
+        let top_2 = freq.top_n(2);
+        assert_eq!(top_2.len(), 2);
+        assert_eq!(top_2[0], (&4, 4)); // Most frequent
+        assert_eq!(top_2[1], (&1, 3)); // Second most frequent
+
+        let bottom_2 = freq.bottom_n(2);
+        assert_eq!(bottom_2.len(), 2);
+        assert_eq!(bottom_2[0], (&3, 1)); // Least frequent
+        assert_eq!(bottom_2[1], (&2, 2)); // Second least frequent
+    }
+
+    #[test]
+    fn test_count_methods() {
+        let mut freq = Frequencies::new();
+        freq.extend(vec![1, 1, 1, 2, 2, 3, 4, 4, 4, 4]);
+
+        // Test total_count()
+        assert_eq!(freq.total_count(), 10);
+
+        // Test has_count()
+        assert!(freq.has_count(3)); // 1 appears 3 times
+        assert!(freq.has_count(4)); // 4 appears 4 times
+        assert!(freq.has_count(1)); // 3 appears 1 time
+        assert!(!freq.has_count(5)); // No element appears 5 times
+
+        // Test items_with_count()
+        let items_with_3 = freq.items_with_count(3);
+        assert_eq!(items_with_3, vec![&1]); // Only 1 appears 3 times
+
+        let items_with_2 = freq.items_with_count(2);
+        assert_eq!(items_with_2, vec![&2]); // Only 2 appears 2 times
+
+        let items_with_1 = freq.items_with_count(1);
+        assert_eq!(items_with_1, vec![&3]); // Only 3 appears 1 time
+
+        let items_with_4 = freq.items_with_count(4);
+        assert_eq!(items_with_4, vec![&4]); // Only 4 appears 4 times
+
+        let items_with_5 = freq.items_with_count(5);
+        assert!(items_with_5.is_empty()); // No elements appear 5 times
     }
 }
