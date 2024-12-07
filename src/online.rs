@@ -41,6 +41,10 @@ pub struct OnlineStats {
     size: u64,
     mean: f64,
     q: f64,
+    harmonic_sum: f64,
+    geometric_sum: f64,
+    has_zero: bool,
+    has_negative: bool,
 }
 
 impl OnlineStats {
@@ -60,8 +64,12 @@ impl OnlineStats {
 
     /// Return the current mean.
     #[must_use]
-    pub const fn mean(&self) -> f64 {
-        self.mean
+    pub fn mean(&self) -> f64 {
+        if self.is_empty() {
+            f64::NAN
+        } else {
+            self.mean
+        }
     }
 
     /// Return the current standard deviation.
@@ -75,6 +83,33 @@ impl OnlineStats {
     #[must_use]
     pub fn variance(&self) -> f64 {
         self.q / (self.size as f64)
+    }
+
+    /// Return the current harmonic mean.
+    #[must_use]
+    pub fn harmonic_mean(&self) -> f64 {
+        if self.is_empty() || self.has_zero || self.has_negative {
+            f64::NAN
+        } else {
+            (self.size as f64) / self.harmonic_sum
+        }
+    }
+
+    /// Return the current geometric mean.
+    #[must_use]
+    pub fn geometric_mean(&self) -> f64 {
+        if self.is_empty() {
+            f64::NAN
+        } else if self.has_zero {
+            0.0
+        } else if self.has_negative
+            || self.geometric_sum.is_infinite()
+            || self.geometric_sum.is_nan()
+        {
+            f64::NAN
+        } else {
+            (self.geometric_sum / (self.size as f64)).exp()
+        }
     }
 
     // TODO: Calculate kurtosis
@@ -92,6 +127,20 @@ impl OnlineStats {
         self.mean += delta / (self.size as f64);
         let delta2 = sample - self.mean;
         self.q += delta * delta2;
+
+        // Update harmonic mean sum (avoid division by zero)
+        if sample != 0.0 {
+            self.harmonic_sum += 1.0 / sample;
+        }
+
+        // Update geometric mean tracking
+        if sample == 0.0 {
+            self.has_zero = true;
+        } else if sample < 0.0 {
+            self.has_negative = true;
+        } else if sample > 0.0 {
+            self.geometric_sum += sample.ln();
+        }
     }
 
     /// Add a new NULL value to the population.
@@ -138,15 +187,17 @@ impl Commute for OnlineStats {
         self.size += v.size;
 
         //self.mean = ((s1 * self.mean) + (s2 * v.mean)) / (s1 + s2);
-        /*
-        below is the fused multiply add version of the statement above
-        its more performant as we're taking advantage of a CPU instruction
-        */
+        // below is the fused multiply add version of the statement above
+        // its more performant as we're taking advantage of a CPU instruction
         self.mean = s1.mul_add(self.mean, s2 * v.mean) / (s1 + s2);
 
         // self.q += v.q + meandiffsq * s1 * s2 / (s1 + s2);
         // below is the fused multiply add version of the statement above
         self.q += v.q + f64::mul_add(meandiffsq, s1 * s2 / (s1 + s2), 0.0);
+
+        self.harmonic_sum += v.harmonic_sum;
+        self.geometric_sum += v.geometric_sum;
+        self.has_negative |= v.has_negative;
     }
 }
 
@@ -156,6 +207,10 @@ impl Default for OnlineStats {
             size: 0,
             mean: 0.0,
             q: 0.0,
+            harmonic_sum: 0.0,
+            geometric_sum: 0.0,
+            has_zero: false,
+            has_negative: false,
         }
     }
 }
@@ -232,5 +287,71 @@ mod test {
             expected.variance(),
             merge_all(vars.into_iter()).unwrap().variance()
         );
+    }
+
+    #[test]
+    fn test_means() {
+        let mut stats = OnlineStats::new();
+        stats.extend(vec![2.0f64, 4.0, 8.0]);
+
+        // Arithmetic mean = (2 + 4 + 8) / 3 = 4.666...
+        assert!((stats.mean() - 4.666666666667).abs() < 1e-10);
+
+        // Harmonic mean = 3 / (1/2 + 1/4 + 1/8) = 3.428571429
+        assert_eq!("3.42857143", format!("{:.8}", stats.harmonic_mean()));
+
+        // Geometric mean = (2 * 4 * 8)^(1/3) = 4.0
+        assert!((stats.geometric_mean() - 4.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_means_with_negative() {
+        let mut stats = OnlineStats::new();
+        stats.extend(vec![-2.0f64, 2.0]);
+
+        // Arithmetic mean = (-2 + 2) / 2 = 0
+        assert!(stats.mean().abs() < 1e-10);
+
+        // Geometric mean is NaN for negative numbers
+        assert!(stats.geometric_mean().is_nan());
+
+        // Harmonic mean is undefined when values have different signs
+        assert!(stats.harmonic_mean().is_nan());
+    }
+
+    #[test]
+    fn test_means_with_zero() {
+        let mut stats = OnlineStats::new();
+        stats.extend(vec![0.0f64, 4.0, 8.0]);
+
+        // Arithmetic mean = (0 + 4 + 8) / 3 = 4
+        assert!((stats.mean() - 4.0).abs() < 1e-10);
+
+        // Geometric mean = (0 * 4 * 8)^(1/3) = 0
+        assert!(stats.geometric_mean().abs() < 1e-10);
+
+        // Harmonic mean is undefined when any value is 0
+        assert!(stats.harmonic_mean().is_nan());
+    }
+
+    #[test]
+    fn test_means_single_value() {
+        let mut stats = OnlineStats::new();
+        stats.extend(vec![5.0f64]);
+
+        // All means should equal the single value
+        assert!((stats.mean() - 5.0).abs() < 1e-10);
+        assert!((stats.geometric_mean() - 5.0).abs() < 1e-10);
+        assert!((stats.harmonic_mean() - 5.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_means_empty() {
+        let stats = OnlineStats::new();
+
+        // All means should be NaN for empty stats
+        assert!(stats.mean().is_nan());
+        assert!(stats.geometric_mean().is_nan());
+        assert!(stats.harmonic_mean().is_nan());
     }
 }
