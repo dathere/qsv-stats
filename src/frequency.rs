@@ -31,12 +31,10 @@ impl<T: Eq + Hash> Frequencies<T> {
     /// false if the value wasn't found
     #[inline]
     pub fn increment(&mut self, v: &T) -> bool {
-        if let Some(count) = self.data.get_mut(v) {
+        self.data.get_mut(v).map_or(false, |count| {
             *count += 1;
             true
-        } else {
-            false
-        }
+        })
     }
 
     /// Optimized add that uses increment as a fast path
