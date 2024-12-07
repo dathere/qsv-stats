@@ -74,10 +74,10 @@ impl<T: PartialOrd + Clone> MinMax<T> {
             }
         }
 
-        if self.min.as_ref().map_or(true, |v| &sample < v) {
+        if self.min.as_ref().is_none_or(|v| &sample < v) {
             self.min = Some(sample.clone());
         }
-        if self.max.as_ref().map_or(true, |v| &sample > v) {
+        if self.max.as_ref().is_none_or(|v| &sample > v) {
             self.max = Some(sample);
         }
     }
