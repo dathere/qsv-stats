@@ -26,16 +26,24 @@ impl<T: Eq + Hash> Frequencies<T> {
         Default::default()
     }
 
-    /// Add a sample to the frequency table.
+    /// Fast path for incrementing existing value
+    /// Returns true if the value existed and was incremented,
+    /// false if the value wasn't found
+    #[inline]
+    pub fn increment(&mut self, v: &T) -> bool {
+        if let Some(count) = self.data.get_mut(v) {
+            *count += 1;
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Optimized add that uses increment as a fast path
     #[inline]
     pub fn add(&mut self, v: T) {
-        match self.data.entry(v) {
-            Entry::Vacant(count) => {
-                count.insert(1);
-            }
-            Entry::Occupied(mut count) => {
-                *count.get_mut() += 1;
-            }
+        if !self.increment(&v) {
+            self.data.insert(v, 1);
         }
     }
 
