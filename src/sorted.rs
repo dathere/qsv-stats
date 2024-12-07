@@ -9,19 +9,25 @@ use {crate::Commute, crate::Partial};
 
 pub fn median_on_sorted<T>(data: &[T]) -> Option<f64>
         where T: PartialOrd + ToPrimitive {
-    Some(match data.len() {
-        0 => return None,
-        1 =>  data.get(0)?.to_f64().unwrap(),
+    let len = data.len();
+    match len {
+        0 => None,
+        // safety: // Use direct indexing since we know len == 1
+        1 => data[0].to_f64(),
         len if len % 2 == 0 => {
             let idx = len / 2;
-            let v1 = data.get((idx) - 1)?.to_f64().unwrap();
-            let v2 = data.get(idx)?.to_f64().unwrap();
-            (v1 + v2) / 2.0
+            // SAFETY: We know idx and idx-1 are valid because len >= 2
+            unsafe {
+                let v1 = data.get_unchecked(idx - 1).to_f64()?;
+                let v2 = data.get_unchecked(idx).to_f64()?;
+                Some((v1 + v2) / 2.0)
+            }
         }
-        len => 
-            data.get(len / 2).to_f64()?.unwrap()
-        
-    })
+        len => {
+            // SAFETY: We know len/2 is valid because len >= 3
+            unsafe { data.get_unchecked(len / 2).to_f64() }
+        }
+    }
 }
 
 pub fn mode_on_sorted<T, I>(it: I) -> Option<T>
