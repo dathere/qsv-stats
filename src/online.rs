@@ -64,7 +64,7 @@ impl OnlineStats {
 
     /// Return the current mean.
     #[must_use]
-    pub fn mean(&self) -> f64 {
+    pub const fn mean(&self) -> f64 {
         if self.is_empty() {
             f64::NAN
         } else {
