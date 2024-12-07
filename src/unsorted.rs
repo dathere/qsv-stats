@@ -244,9 +244,9 @@ where
     let (mut mode, mut next) = (None, None);
     let (mut mode_count, mut next_count) = (0usize, 0usize);
     for x in it {
-        if mode.as_ref().map_or(false, |y| y == &x) {
+        if mode.as_ref() == Some(&x) {
             mode_count += 1;
-        } else if next.as_ref().map_or(false, |y| y == &x) {
+        } else if next.as_ref() == Some(&x) {
             next_count += 1;
         } else {
             next = Some(x);
