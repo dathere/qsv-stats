@@ -173,7 +173,8 @@ impl<T: Eq + Hash> Frequencies<T> {
     }
 
     /// Get the top N most frequent items without sorting the entire vector
-    /// This is much faster than most_frequent() when you only need a few items
+    /// This is much faster than `most_frequent()` when you only need a few items
+    #[must_use]
     pub fn top_n(&self, n: usize) -> Vec<(&T, u64)>
     where
         T: Ord,
@@ -201,7 +202,8 @@ impl<T: Eq + Hash> Frequencies<T> {
             .collect()
     }
 
-    /// Similar to top_n but for least frequent items
+    /// Similar to `top_n` but for least frequent items
+    #[must_use]
     pub fn bottom_n(&self, n: usize) -> Vec<(&T, u64)>
     where
         T: Ord,
@@ -224,6 +226,7 @@ impl<T: Eq + Hash> Frequencies<T> {
     }
 
     /// Get items with exactly n occurrences
+    #[must_use]
     pub fn items_with_count(&self, n: u64) -> Vec<&T> {
         self.data
             .iter()
@@ -233,11 +236,13 @@ impl<T: Eq + Hash> Frequencies<T> {
     }
 
     /// Get the sum of all counts
+    #[must_use]
     pub fn total_count(&self) -> u64 {
         self.data.values().sum()
     }
 
     /// Check if any item occurs exactly n times
+    #[must_use]
     pub fn has_count(&self, n: u64) -> bool {
         self.data.values().any(|&count| count == n)
     }
@@ -306,7 +311,7 @@ mod test {
     #[test]
     fn ranked() {
         let mut counts = Frequencies::new();
-        counts.extend(vec![1usize, 1, 2, 2, 2, 2, 2, 3, 4, 4, 4].into_iter());
+        counts.extend(vec![1usize, 1, 2, 2, 2, 2, 2, 3, 4, 4, 4]);
         let (most_count, most_total) = counts.most_frequent();
         assert_eq!(most_count[0], (&2, 5));
         assert_eq!(most_total, 11);
@@ -319,7 +324,7 @@ mod test {
     #[test]
     fn ranked2() {
         let mut counts = Frequencies::new();
-        counts.extend(vec![1usize, 1, 2, 2, 2, 2, 2, 3, 4, 4, 4].into_iter());
+        counts.extend(vec![1usize, 1, 2, 2, 2, 2, 2, 3, 4, 4, 4]);
         let (most_count, most_total) = counts.par_frequent(false);
         assert_eq!(most_count[0], (&2, 5));
         assert_eq!(most_total, 11);

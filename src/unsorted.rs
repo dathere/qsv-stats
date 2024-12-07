@@ -703,7 +703,7 @@ mod test {
     #[test]
     fn test_cardinality_string() {
         let mut unsorted = Unsorted::new();
-        unsorted.extend(vec!["a", "b", "b", "c", "c", "c"].into_iter());
+        unsorted.extend(vec!["a", "b", "b", "c", "c", "c"]);
         assert_eq!(unsorted.cardinality(false, 1), 3);
     }
     #[test]
