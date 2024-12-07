@@ -480,10 +480,10 @@ impl<T: PartialOrd + PartialEq + Clone> Unsorted<T> {
             self.data
                 .iter()
                 .fold((0, None), |(count, last), item| {
-                    if Some(item) != last {
-                        (count + 1, Some(item))
-                    } else {
+                    if Some(item) == last {
                         (count, last)
+                    } else {
+                        (count + 1, Some(item))
                     }
                 })
                 .0
