@@ -152,80 +152,110 @@ fn quartiles_on_sorted<T>(data: &[T]) -> Option<(f64, f64, f64)>
 where
     T: PartialOrd + ToPrimitive,
 {
-    Some(match data.len() {
+    let len = data.len();
+
+    // Early return for small arrays
+    match len {
         0..=2 => return None,
-        3 => (
-            data.first()?.to_f64().unwrap(),
-            data.get(1)?.to_f64().unwrap(),
-            data.last()?.to_f64().unwrap(),
-        ),
-        len => {
-            let r = len % 4;
-            let k = (len - r) / 4;
-            assert!(k <= len); // hint to compiler to avoid bounds check
-            match r {
+        3 => {
+            return Some(
+                // SAFETY: We know these indices are valid because len == 3
+                unsafe {
+                    (
+                        data.get_unchecked(0).to_f64()?,
+                        data.get_unchecked(1).to_f64()?,
+                        data.get_unchecked(2).to_f64()?,
+                    )
+                },
+            );
+        }
+        _ => {}
+    }
+
+    // Calculate k and remainder in one division
+    let k = len / 4;
+    let remainder = len % 4;
+
+    // SAFETY: All index calculations below are guaranteed to be in bounds
+    // because we've verified len >= 4 above and k is len/4
+    unsafe {
+        Some(match remainder {
+            0 => {
                 // Let data = {x_i}_{i=0..4k} where k is positive integer.
                 // Median q2 = (x_{2k-1} + x_{2k}) / 2.
                 // If we divide data into two parts {x_i < q2} as L and
                 // {x_i > q2} as R, #L == #R == 2k holds true. Thus,
                 // q1 = (x_{k-1} + x_{k}) / 2 and q3 = (x_{3k-1} + x_{3k}) / 2.
-                0 => {
-                    let (q1_l, q1_r, q2_l, q2_r, q3_l, q3_r) = (
-                        data.get(k - 1)?.to_f64().unwrap(),
-                        data.get(k)?.to_f64().unwrap(),
-                        data.get(2 * k - 1)?.to_f64().unwrap(),
-                        data.get(2 * k)?.to_f64().unwrap(),
-                        data.get(3 * k - 1)?.to_f64().unwrap(),
-                        data.get(3 * k)?.to_f64().unwrap(),
-                    );
-
-                    ((q1_l + q1_r) / 2., (q2_l + q2_r) / 2., (q3_l + q3_r) / 2.)
-                }
+                // =============
+                // Length is multiple of 4 (4k)
+                // Q1 = (x_{k-1} + x_k) / 2
+                // Q2 = (x_{2k-1} + x_{2k}) / 2
+                // Q3 = (x_{3k-1} + x_{3k}) / 2
+                let q1 =
+                    (data.get_unchecked(k - 1).to_f64()? + data.get_unchecked(k).to_f64()?) / 2.0;
+                let q2 = (data.get_unchecked(2 * k - 1).to_f64()?
+                    + data.get_unchecked(2 * k).to_f64()?)
+                    / 2.0;
+                let q3 = (data.get_unchecked(3 * k - 1).to_f64()?
+                    + data.get_unchecked(3 * k).to_f64()?)
+                    / 2.0;
+                (q1, q2, q3)
+            }
+            1 => {
                 // Let data = {x_i}_{i=0..4k+1} where k is positive integer.
                 // Median q2 = x_{2k}.
                 // If we divide data other than q2 into two parts {x_i < q2}
                 // as L and {x_i > q2} as R, #L == #R == 2k holds true. Thus,
                 // q1 = (x_{k-1} + x_{k}) / 2 and q3 = (x_{3k} + x_{3k+1}) / 2.
-                1 => {
-                    let (q1_l, q1_r, q2, q3_l, q3_r) = (
-                        data.get(k - 1)?.to_f64().unwrap(),
-                        data.get(k)?.to_f64().unwrap(),
-                        data.get(2 * k)?.to_f64().unwrap(),
-                        data.get(3 * k)?.to_f64().unwrap(),
-                        data.get(3 * k + 1)?.to_f64().unwrap(),
-                    );
-                    ((q1_l + q1_r) / 2., q2, (q3_l + q3_r) / 2.)
-                }
+                // =============
+                // Length is 4k + 1
+                // Q1 = (x_{k-1} + x_k) / 2
+                // Q2 = x_{2k}
+                // Q3 = (x_{3k} + x_{3k+1}) / 2
+                let q1 =
+                    (data.get_unchecked(k - 1).to_f64()? + data.get_unchecked(k).to_f64()?) / 2.0;
+                let q2 = data.get_unchecked(2 * k).to_f64()?;
+                let q3 = (data.get_unchecked(3 * k).to_f64()?
+                    + data.get_unchecked(3 * k + 1).to_f64()?)
+                    / 2.0;
+                (q1, q2, q3)
+            }
+            2 => {
                 // Let data = {x_i}_{i=0..4k+2} where k is positive integer.
                 // Median q2 = (x_{(2k+1)-1} + x_{2k+1}) / 2.
                 // If we divide data into two parts {x_i < q2} as L and
                 // {x_i > q2} as R, it's true that #L == #R == 2k+1.
                 // Thus, q1 = x_{k} and q3 = x_{3k+1}.
-                2 => {
-                    let (q1, q2_l, q2_r, q3) = (
-                        data.get(k)?.to_f64().unwrap(),
-                        data.get(2 * k)?.to_f64().unwrap(),
-                        data.get(2 * k + 1)?.to_f64().unwrap(),
-                        data.get(3 * k + 1)?.to_f64().unwrap(),
-                    );
-                    (q1, (q2_l + q2_r) / 2., q3)
-                }
+                // =============
+                // Length is 4k + 2
+                // Q1 = x_k
+                // Q2 = (x_{2k} + x_{2k+1}) / 2
+                // Q3 = x_{3k+1}
+                let q1 = data.get_unchecked(k).to_f64()?;
+                let q2 = (data.get_unchecked(2 * k).to_f64()?
+                    + data.get_unchecked(2 * k + 1).to_f64()?)
+                    / 2.0;
+                let q3 = data.get_unchecked(3 * k + 1).to_f64()?;
+                (q1, q2, q3)
+            }
+            _ => {
                 // Let data = {x_i}_{i=0..4k+3} where k is positive integer.
                 // Median q2 = x_{2k+1}.
                 // If we divide data other than q2 into two parts {x_i < q2}
                 // as L and {x_i > q2} as R, #L == #R == 2k+1 holds true.
                 // Thus, q1 = x_{k} and q3 = x_{3k+2}.
-                _ => {
-                    let (q1, q2, q3) = (
-                        data.get(k)?.to_f64().unwrap(),
-                        data.get(2 * k + 1)?.to_f64().unwrap(),
-                        data.get(3 * k + 2)?.to_f64().unwrap(),
-                    );
-                    (q1, q2, q3)
-                }
+                // =============
+                // Length is 4k + 3
+                // Q1 = x_k
+                // Q2 = x_{2k+1}
+                // Q3 = x_{3k+2}
+                let q1 = data.get_unchecked(k).to_f64()?;
+                let q2 = data.get_unchecked(2 * k + 1).to_f64()?;
+                let q3 = data.get_unchecked(3 * k + 2).to_f64()?;
+                (q1, q2, q3)
             }
-        }
-    })
+        })
+    }
 }
 
 fn mode_on_sorted<T, I>(it: I) -> Option<T>
