@@ -123,23 +123,21 @@ impl OnlineStats {
         // See also: https://api.semanticscholar.org/CorpusID:120126049
         let oldmean = self.mean;
         self.size += 1;
+        let size_f64 = self.size as f64;
+        
+        // Use fused multiply-add for better performance & higher accuracy
         let delta = sample - oldmean;
-        self.mean += delta / (self.size as f64);
-        let delta2 = sample - self.mean;
-        self.q += delta * delta2;
+        self.mean = oldmean + delta / size_f64;
+        self.q = delta.mul_add(sample - self.mean, self.q);
 
-        // Update harmonic mean sum (avoid division by zero)
-        if sample != 0.0 {
-            self.harmonic_sum += 1.0 / sample;
-        }
-
-        // Update geometric mean tracking
-        if sample == 0.0 {
-            self.has_zero = true;
-        } else if sample < 0.0 {
-            self.has_negative = true;
-        } else if sample > 0.0 {
-            self.geometric_sum += sample.ln();
+        // Update harmonic and geometric means in one pass
+        match sample {
+            0.0 => self.has_zero = true,
+            s if s < 0.0 => self.has_negative = true,
+            s => {
+                self.harmonic_sum += 1.0 / s;
+                self.geometric_sum += s.ln();
+            }
         }
     }
 
