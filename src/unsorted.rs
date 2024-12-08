@@ -422,8 +422,8 @@ where
 /// is returned.
 #[derive(Clone, Serialize, Deserialize, Eq, PartialEq)]
 pub struct Unsorted<T> {
-    data: Vec<Partial<T>>,
     sorted: bool,
+    data: Vec<Partial<T>>,
 }
 
 impl<T: PartialOrd> Unsorted<T> {
