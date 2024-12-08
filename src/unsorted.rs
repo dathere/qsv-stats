@@ -306,7 +306,7 @@ where
     I: Iterator<Item = T>,
 {
     let mut highest_mode = 0_u32;
-    let mut modes: Vec<(T, u32)> = Vec::with_capacity(usize::min(size / 3, 10_000));
+    let mut modes: Vec<(T, u32)> = Vec::with_capacity(usize::min(size / 3, 1_000));
     let mut mode;
     let mut count = 0;
 
