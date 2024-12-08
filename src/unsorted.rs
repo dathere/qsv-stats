@@ -114,15 +114,15 @@ where
 {
     Some(match data.len() {
         0 => return None,
-        1 => data.first()?.to_f64().unwrap(),
+        1 => data.first()?.to_f64()?,
         len if len % 2 == 0 => {
             let idx = len / 2;
-            let v1 = data.get(idx - 1)?.to_f64().unwrap();
-            let v2 = data.get(idx)?.to_f64().unwrap();
+            let v1 = data.get(idx - 1)?.to_f64()?;
+            let v2 = data.get(idx)?.to_f64()?;
             (v1 + v2) / 2.0
         }
         // Safety: we know the index is within bounds
-        len => unsafe { data.get_unchecked(len / 2) }.to_f64().unwrap(),
+        len => unsafe { data.get_unchecked(len / 2) }.to_f64()?,
     })
 }
 
