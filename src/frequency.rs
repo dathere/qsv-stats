@@ -1,6 +1,5 @@
 use ahash::AHashMap;
 use std::collections::hash_map::{Entry, Keys};
-use std::fmt;
 use std::hash::Hash;
 
 use rayon::prelude::*;
@@ -13,8 +12,8 @@ pub struct Frequencies<T> {
 }
 
 #[cfg(debug_assertions)]
-impl<T: fmt::Debug + Eq + Hash> fmt::Debug for Frequencies<T> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+impl<T: std::fmt::Debug + Eq + Hash> std::fmt::Debug for Frequencies<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         write!(f, "{:?}", self.data)
     }
 }
@@ -31,7 +30,7 @@ impl<T: Eq + Hash> Frequencies<T> {
     /// false if the value wasn't found
     #[inline]
     pub fn increment(&mut self, v: &T) -> bool {
-        self.data.get_mut(v).map_or(false, |count| {
+        self.data.get_mut(v).is_some_and(|count| {
             *count += 1;
             true
         })
