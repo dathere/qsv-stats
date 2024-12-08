@@ -124,7 +124,7 @@ impl OnlineStats {
         let oldmean = self.mean;
         self.size += 1;
         let size_f64 = self.size as f64;
-        
+
         // Use fused multiply-add for better performance & higher accuracy
         let delta = sample - oldmean;
         self.mean = oldmean + delta / size_f64;
