@@ -348,69 +348,55 @@ where
     T: PartialOrd,
     I: Iterator<Item = T>,
 {
-    let mut lowest_mode = u32::MAX;
-    // to do some prealloc, without taking up too much memory
-    let capacity = usize::min(size / 3, 10_000);
-    let mut antimodes: Vec<u32> = Vec::with_capacity(capacity);
-    let mut values = Vec::with_capacity(capacity);
-    let mut count = 0;
-    let mut curr_antimode;
-
-    if let Some(first) = it.next() {
-        values.push(first);
-        antimodes.push(1);
-    }
-
-    // safety: we know the index is within bounds, since we just added it
-    // so we use get_unchecked to avoid bounds checking
-    for x in it {
-        if unsafe { *values.get_unchecked(count) == x } {
-            unsafe {
-                *antimodes.get_unchecked_mut(count) += 1;
-            }
-        } else {
-            values.push(x);
-            antimodes.push(1);
-            unsafe { curr_antimode = *antimodes.get_unchecked(count) };
-            if lowest_mode > curr_antimode {
-                lowest_mode = curr_antimode;
-            }
-            count += 1;
-        }
-    }
-    if unsafe { count > 0 && lowest_mode > *antimodes.get_unchecked(count) } {
-        lowest_mode = unsafe { *antimodes.get_unchecked(count) };
-    }
-
-    let mut antimodes_result: Vec<T> = Vec::with_capacity(10);
-    let mut antimodes_result_ctr: u8 = 0;
-    let mut keep_count = true;
-
-    let antimodes_count = if lowest_mode == u32::MAX {
-        lowest_mode = 0;
-        0
-    } else {
-        antimodes
-            .into_iter()
-            .zip(values)
-            .filter(|(cnt, _val)| *cnt == lowest_mode)
-            .map(|(_, val)| {
-                // we only keep the first 10 antimodes and we do this as we do not want to store
-                // antimode values more than 10 we'll throw away immediately anyway,
-                // especially if the cardinality of a column is high,
-                // where there will be a lot of antimodes
-                if keep_count {
-                    antimodes_result.push(val);
-                    antimodes_result_ctr += 1;
-                    if antimodes_result_ctr == 10 {
-                        keep_count = false;
-                    }
-                }
-            })
-            .count()
+    // Early return for empty iterator
+    let Some(first) = it.next() else {
+        return (Vec::new(), 0, 0);
     };
 
-    (antimodes_result, antimodes_count, lowest_mode)
+    // Pre-allocate with reasonable capacity
+    let capacity = (size / 3).min(1_000);
+    let mut runs = Vec::with_capacity(capacity);
+
+    // Track current run
+    let mut current_value = first;
+    let mut current_count = 1;
+
+    // Count consecutive runs
+    for x in it {
+        if x == current_value {
+            current_count += 1;
+        } else {
+            runs.push((current_value, current_count));
+            current_value = x;
+            current_count = 1;
+        }
+    }
+    runs.push((current_value, current_count));
+
+    // Early return if only one unique value
+    if runs.len() == 1 {
+        return (Vec::new(), 0, 0);
+    }
+
+    // Find minimum count
+    let min_count = runs.iter().map(|(_, count)| *count).min().unwrap_or(0);
+
+    // Collect antimodes (values with minimum count)
+    let mut antimodes = Vec::with_capacity(10);
+    let mut total_antimodes = 0;
+
+    let mut get_result = true;
+    for (value, count) in runs {
+        if count == min_count {
+            total_antimodes += 1;
+            if get_result {
+                antimodes.push(value);
+                get_result = antimodes.len() < 10;
+            }
+        }
+    }
+
+    (antimodes, total_antimodes, min_count)
 }
 
 /// A commutative data structure for lazily sorted sequences of data.
@@ -545,6 +531,7 @@ impl<T: PartialOrd + Clone> Unsorted<T> {
     }
 
     /// Returns the antimodes of the data.
+    /// `antimodes_result` only returns the first 10 antimodes
     #[inline]
     pub fn antimodes(&mut self) -> (Vec<T>, usize, u32) {
         if self.data.is_empty() {
