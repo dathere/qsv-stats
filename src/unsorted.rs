@@ -113,14 +113,20 @@ where
     T: PartialOrd + ToPrimitive,
 {
     Some(match data.len() {
+        // Empty slice case - return None early
         0 => return None,
+        // Single element case - return that element converted to f64
         1 => data.first()?.to_f64()?,
+        // Even length case - average the two middle elements
         len if len % 2 == 0 => {
             let idx = len / 2;
-            let v1 = data.get(idx - 1)?.to_f64()?;
-            let v2 = data.get(idx)?.to_f64()?;
+            // Safety: we know these indices are valid because we checked len is even and non-zero,
+            // so idx-1 and idx are valid indices into data
+            let v1 = unsafe { data.get_unchecked(idx - 1) }.to_f64()?;
+            let v2 = unsafe { data.get_unchecked(idx) }.to_f64()?;
             (v1 + v2) / 2.0
         }
+        // Odd length case - return the middle element
         // Safety: we know the index is within bounds
         len => unsafe { data.get_unchecked(len / 2) }.to_f64()?,
     })
