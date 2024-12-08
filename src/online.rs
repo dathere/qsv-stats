@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 use crate::Commute;
 
 /// Compute the standard deviation of a stream in constant space.
+#[inline]
 pub fn stddev<'a, I, T>(x: I) -> f64
 where
     I: IntoIterator<Item = T>,
@@ -16,6 +17,7 @@ where
 }
 
 /// Compute the variance of a stream in constant space.
+#[inline]
 pub fn variance<'a, I, T>(x: I) -> f64
 where
     I: IntoIterator<Item = T>,
@@ -26,6 +28,7 @@ where
 }
 
 /// Compute the mean of a stream in constant space.
+#[inline]
 pub fn mean<'a, I, T>(x: I) -> f64
 where
     I: IntoIterator<Item = T>,
@@ -59,6 +62,7 @@ impl OnlineStats {
     /// Initializes `OnlineStats` from a sample.
     #[must_use]
     pub fn from_slice<T: ToPrimitive>(samples: &[T]) -> OnlineStats {
+        // safety: OnlineStats is only for numbers
         samples.iter().map(|n| n.to_f64().unwrap()).collect()
     }
 
@@ -118,6 +122,7 @@ impl OnlineStats {
     /// Add a new sample.
     #[inline]
     pub fn add<T: ToPrimitive>(&mut self, sample: &T) {
+        // safety: we only add samples for numbers, so safe to unwrap
         let sample = sample.to_f64().unwrap();
         // Taken from: https://en.wikipedia.org/wiki/Standard_deviation#Rapid_calculation_methods
         // See also: https://api.semanticscholar.org/CorpusID:120126049
