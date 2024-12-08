@@ -572,7 +572,7 @@ impl<T: PartialOrd + ToPrimitive> Unsorted<T> {
 }
 
 impl<T: PartialOrd + ToPrimitive> Unsorted<T> {
-    /// Returns the MAD of the data.
+    /// Returns the Median Absolute Deviation (MAD) of the data.
     #[inline]
     pub fn mad(&mut self, existing_median: Option<f64>) -> Option<f64> {
         if self.data.is_empty() {
