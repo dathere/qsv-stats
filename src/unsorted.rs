@@ -311,14 +311,21 @@ where
     T: PartialOrd,
     I: Iterator<Item = T>,
 {
-    let mut highest_mode = 0_u32;
-    let mut modes: Vec<(T, u32)> = Vec::with_capacity(usize::min(size / 3, 1_000));
+    // Early return for empty iterator
+    let Some(first) = it.next() else {
+        return (Vec::new(), 0, 0);
+    };
+
+    // Estimate capacity using square root of size
+    let mut modes: Vec<(T, u32)> = Vec::with_capacity(
+        ((size as f64).sqrt() as usize).clamp(16, 1_000), // Min 16, max 1000
+    );
+
     let mut mode;
     let mut count = 0;
 
-    if let Some(x) = it.next() {
-        modes.push((x, 1));
-    }
+    let mut highest_mode = 0_u32;
+    modes.push((first, 1));
 
     for x in it {
         // safety: we know the index is within bounds, since we just added it
@@ -525,6 +532,8 @@ impl<T: PartialOrd + Clone> Unsorted<T> {
     }
 
     /// Returns the modes of the data.
+    /// Note that there is also a frequency::mode() function that return one mode
+    /// with the highest frequency. If there is a tie, it returns None.
     #[inline]
     pub fn modes(&mut self) -> (Vec<T>, usize, u32) {
         if self.data.is_empty() {
@@ -593,6 +602,10 @@ impl<T: PartialOrd + ToPrimitive> Unsorted<T> {
 impl<T: PartialOrd> Commute for Unsorted<T> {
     #[inline]
     fn merge(&mut self, mut v: Unsorted<T>) {
+        if v.is_empty() {
+            return;
+        }
+
         self.sorted = false;
         // we use std::mem::take to avoid unnecessary allocations
         self.data.extend(std::mem::take(&mut v.data));
