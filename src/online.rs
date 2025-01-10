@@ -165,18 +165,7 @@ impl OnlineStats {
     #[inline]
     #[must_use]
     pub const fn is_empty(&self) -> bool {
-        #[cfg(feature = "nightly")]
-        {
-            if std::intrinsics::likely(self.size != 0) {
-                false
-            } else {
-                true
-            }
-        }
-        #[cfg(not(feature = "nightly"))]
-        {
-            self.size == 0
-        }
+        self.size == 0
     }
 }
 
