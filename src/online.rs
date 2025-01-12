@@ -63,7 +63,10 @@ impl OnlineStats {
     #[must_use]
     pub fn from_slice<T: ToPrimitive>(samples: &[T]) -> OnlineStats {
         // safety: OnlineStats is only for numbers
-        samples.iter().map(|n| n.to_f64().unwrap()).collect()
+        samples
+            .iter()
+            .map(|n| unsafe { n.to_f64().unwrap_unchecked() })
+            .collect()
     }
 
     /// Return the current mean.
