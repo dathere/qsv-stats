@@ -123,7 +123,7 @@ impl OnlineStats {
     #[inline]
     pub fn add<T: ToPrimitive>(&mut self, sample: &T) {
         // safety: we only add samples for numbers, so safe to unwrap
-        let sample = sample.to_f64().unwrap();
+        let sample = unsafe { sample.to_f64().unwrap_unchecked() };
         // Taken from: https://en.wikipedia.org/wiki/Standard_deviation#Rapid_calculation_methods
         // See also: https://api.semanticscholar.org/CorpusID:120126049
         let oldmean = self.mean;
