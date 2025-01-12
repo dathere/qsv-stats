@@ -317,6 +317,7 @@ where
     };
 
     // Estimate capacity using square root of size
+    #[allow(clippy::cast_sign_loss)]
     let mut modes: Vec<(T, u32)> = Vec::with_capacity(
         ((size as f64).sqrt() as usize).clamp(16, 1_000), // Min 16, max 1000
     );
@@ -532,7 +533,7 @@ impl<T: PartialOrd + Clone> Unsorted<T> {
     }
 
     /// Returns the modes of the data.
-    /// Note that there is also a frequency::mode() function that return one mode
+    /// Note that there is also a `frequency::mode()` function that return one mode
     /// with the highest frequency. If there is a tie, it returns None.
     #[inline]
     pub fn modes(&mut self) -> (Vec<T>, usize, u32) {
