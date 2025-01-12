@@ -147,7 +147,7 @@ where
         .map(|x| (median_obs - unsafe { x.to_f64().unwrap_unchecked() }).abs())
         .collect();
 
-    abs_diff_vec.par_sort_unstable_by(|a, b| a.partial_cmp(b).unwrap());
+    abs_diff_vec.par_sort_unstable_by(|a, b| unsafe { a.partial_cmp(b).unwrap_unchecked() });
     median_on_sorted(&abs_diff_vec)
 }
 
