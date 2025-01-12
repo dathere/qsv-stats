@@ -59,8 +59,8 @@ impl<T: Eq + Hash> Frequencies<T> {
     }
 
     /// Returns the mode if one exists.
-    /// Note that there is also a modes() function that returns all
-    /// modes (plural) in unsorted::modes(). It returns all modes
+    /// Note that there is also a `modes()` function that returns all
+    /// modes (plural) in `unsorted::modes()`. It returns all modes
     /// with the same frequency.
     #[inline]
     #[must_use]
@@ -318,7 +318,10 @@ mod test {
         let (least_count, least_total) = counts.least_frequent();
         assert_eq!(least_count[0], (&3, 1));
         assert_eq!(least_total, 11);
-        // assert_eq!(counts.least_frequent()[0], (&3, 1));
+        assert_eq!(
+            counts.least_frequent(),
+            (vec![(&3, 1), (&1, 2), (&4, 3), (&2, 5)], 11)
+        );
     }
 
     #[test]
