@@ -144,10 +144,7 @@ where
 
     let mut abs_diff_vec: Vec<f64> = data
         .par_iter()
-        .map(|x| {
-            let val: f64 = x.to_f64().unwrap();
-            (median_obs - val).abs()
-        })
+        .map(|x| (median_obs - unsafe { x.to_f64().unwrap_unchecked() }).abs())
         .collect();
 
     abs_diff_vec.par_sort_unstable_by(|a, b| a.partial_cmp(b).unwrap());
