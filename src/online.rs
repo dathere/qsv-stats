@@ -127,26 +127,30 @@ impl OnlineStats {
     pub fn add<T: ToPrimitive>(&mut self, sample: &T) {
         // safety: we only add samples for numbers, so safe to unwrap
         let sample = unsafe { sample.to_f64().unwrap_unchecked() };
+
         // Taken from: https://en.wikipedia.org/wiki/Standard_deviation#Rapid_calculation_methods
         // See also: https://api.semanticscholar.org/CorpusID:120126049
-        let oldmean = self.mean;
         self.size += 1;
-        let size_f64 = self.size as f64;
-
-        // Use fused multiply-add for better performance & higher accuracy
-        let delta = sample - oldmean;
-        self.mean = oldmean + delta / size_f64;
+        let delta = sample - self.mean;
+        self.mean += delta * (1.0 / (self.size as f64));
         self.q = delta.mul_add(sample - self.mean, self.q);
 
-        // Update harmonic and geometric means in one pass
-        match sample {
-            0.0 => self.has_zero = true,
-            s if s < 0.0 => self.has_negative = true,
-            s => {
-                self.harmonic_sum += 1.0 / s;
-                self.geometric_sum += s.ln();
+        // Early return for special cases to avoid unnecessary computations
+        if sample <= 0.0 {
+            if sample < 0.0 {
+                self.has_negative = true;
+            } else {
+                self.has_zero = true;
             }
+            return;
         }
+
+        if self.has_negative || self.has_zero {
+            return;
+        }
+        // Only compute these if we have all positive number
+        self.harmonic_sum += 1.0 / sample;
+        self.geometric_sum += sample.ln();
     }
 
     /// Add a new NULL value to the population.
