@@ -148,7 +148,7 @@ impl OnlineStats {
         if self.has_negative || self.has_zero {
             return;
         }
-        // Only compute these if we have all positive number
+        // Only compute these if we have all positive numbers
         self.harmonic_sum += 1.0 / sample;
         self.geometric_sum += sample.ln();
     }
