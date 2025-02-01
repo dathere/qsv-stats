@@ -25,5 +25,5 @@ Simply add `qsv-stats` as a dependency to your project's `Cargo.toml`:
 
 ```toml
 [dependencies]
-qsv-stats = "0.24"
+qsv-stats = "0.27"
 ```
