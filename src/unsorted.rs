@@ -303,111 +303,116 @@ where
     mode
 }
 
-fn modes_on_sorted<T, I>(mut it: I, size: usize) -> (Vec<T>, usize, u32)
+/// Computes both modes and antimodes from a sorted iterator of values.
+///
+/// # Arguments
+///
+/// * `it` - A sorted iterator of values
+/// * `size` - The total number of elements in the iterator
+///
+/// # Returns
+///
+/// A tuple containing:
+/// * Modes information: `(Vec<T>, usize, u32)` where:
+///   - Vec<T>: Vector containing the mode values
+///   - usize: Number of modes found
+///   - u32: Frequency/count of the mode values
+/// * Antimodes information: `(Vec<T>, usize, u32)` where:
+///   - Vec<T>: Vector containing up to 10 antimode values
+///   - usize: Total number of antimodes
+///   - u32: Frequency/count of the antimode values
+///
+/// # Notes
+///
+/// - Mode is the most frequently occurring value(s)
+/// - Antimode is the least frequently occurring value(s)
+/// - Only returns up to 10 antimodes to avoid returning the full set when all values are unique
+/// - For empty iterators, returns empty vectors and zero counts
+/// - For single value iterators, returns that value as the mode and empty antimode
+/// - When all values occur exactly once, returns empty mode and up to 10 values as antimodes
+///
+/// # Type Parameters
+///
+/// * `T`: The value type that implements PartialOrd + Clone
+/// * `I`: The iterator type
+fn modes_and_antimodes_on_sorted<T, I>(
+    mut it: I,
+    size: usize,
+) -> ((Vec<T>, usize, u32), (Vec<T>, usize, u32))
 where
-    T: PartialOrd,
+    T: PartialOrd + Clone,
     I: Iterator<Item = T>,
 {
     // Early return for empty iterator
     let Some(first) = it.next() else {
-        return (Vec::new(), 0, 0);
+        return ((Vec::new(), 0, 0), (Vec::new(), 0, 0));
     };
 
     // Estimate capacity using square root of size
     #[allow(clippy::cast_sign_loss)]
-    let mut modes: Vec<(T, u32)> = Vec::with_capacity(
+    let mut runs: Vec<(T, u32)> = Vec::with_capacity(
         ((size as f64).sqrt() as usize).clamp(16, 1_000), // Min 16, max 1000
     );
 
-    let mut mode;
-    let mut count = 0;
-
-    let mut highest_mode = 0_u32;
-    modes.push((first, 1));
-
-    for x in it {
-        // safety: we know the index is within bounds, since we just added it
-        // so we use get_unchecked to avoid bounds checking
-        if unsafe { x == modes.get_unchecked(count).0 } {
-            unsafe {
-                mode = modes.get_unchecked_mut(count);
-            }
-            mode.1 += 1;
-            if highest_mode < mode.1 {
-                highest_mode = mode.1;
-            }
-        } else {
-            modes.push((x, 1));
-            count += 1;
-        }
-    }
-
-    let mut modes_result: Vec<T> = Vec::with_capacity(modes.len());
-    if highest_mode > 1 {
-        for (val, cnt) in modes {
-            if cnt == highest_mode {
-                modes_result.push(val);
-            }
-        }
-    }
-    let modes_count = modes_result.len();
-    (modes_result, modes_count, highest_mode)
-}
-
-fn antimodes_on_sorted<T, I>(mut it: I, size: usize) -> (Vec<T>, usize, u32)
-where
-    T: PartialOrd,
-    I: Iterator<Item = T>,
-{
-    // Early return for empty iterator
-    let Some(first) = it.next() else {
-        return (Vec::new(), 0, 0);
-    };
-
-    // Pre-allocate with reasonable capacity
-    let capacity = (size / 3).min(1_000);
-    let mut runs = Vec::with_capacity(capacity);
-
-    // Track current run
     let mut current_value = first;
     let mut current_count = 1;
+    let mut highest_count = 1;
+    let mut lowest_count = u32::MAX;
 
     // Count consecutive runs
     for x in it {
         if x == current_value {
             current_count += 1;
+            highest_count = highest_count.max(current_count);
         } else {
             runs.push((current_value, current_count));
+            lowest_count = lowest_count.min(current_count);
             current_value = x;
             current_count = 1;
         }
     }
     runs.push((current_value, current_count));
+    lowest_count = lowest_count.min(current_count);
 
     // Early return if only one unique value
     if runs.len() == 1 {
-        return (Vec::new(), 0, 0);
+        let (val, count) = runs.pop().unwrap();
+        return ((vec![val], 1, count), (Vec::new(), 0, 0));
     }
 
-    // Find minimum count
-    let min_count = runs.iter().map(|(_, count)| *count).min().unwrap_or(0);
+    // Special case: if all values appear exactly once
+    if highest_count == 1 {
+        let mut antimodes = Vec::with_capacity(10.min(runs.len()));
+        let total_count = runs.len();
+        for (val, _) in runs.into_iter().take(10) {
+            antimodes.push(val);
+        }
+        return ((Vec::new(), 0, 0), (antimodes, total_count, 1));
+    }
 
-    // Collect antimodes (values with minimum count)
-    let mut antimodes = Vec::with_capacity(10);
-    let mut total_antimodes = 0;
+    // Collect modes and antimodes in a single pass
+    let mut modes_result = Vec::with_capacity(10);
+    let mut antimodes_result = Vec::with_capacity(10);
+    let mut mode_count = 0;
+    let mut antimodes_count = 0;
 
-    let mut get_result = true;
-    for (value, count) in runs {
-        if count == min_count {
-            total_antimodes += 1;
-            if get_result {
-                antimodes.push(value);
-                get_result = antimodes.len() < 10;
+    for (val, count) in &runs {
+        if *count == highest_count {
+            modes_result.push(val.clone());
+            mode_count += 1;
+        }
+        if *count == lowest_count {
+            antimodes_count += 1;
+            if antimodes_result.len() < 10 {
+                antimodes_result.push(val.clone());
             }
         }
     }
 
-    (antimodes, total_antimodes, min_count)
+    (
+        (modes_result, mode_count, highest_count),
+        (antimodes_result, antimodes_count, lowest_count),
+    )
 }
 
 /// A commutative data structure for lazily sorted sequences of data.
@@ -461,7 +466,7 @@ impl<T: PartialOrd> Unsorted<T> {
     }
 
     #[inline]
-    fn already_sorted(&mut self) {
+    const fn already_sorted(&mut self) {
         self.sorted = true;
     }
 }
@@ -533,29 +538,34 @@ impl<T: PartialOrd + Clone> Unsorted<T> {
     /// Note that there is also a `frequency::mode()` function that return one mode
     /// with the highest frequency. If there is a tie, it returns None.
     #[inline]
-    pub fn modes(&mut self) -> (Vec<T>, usize, u32) {
+    fn modes(&mut self) -> (Vec<T>, usize, u32) {
         if self.data.is_empty() {
             return (Vec::new(), 0, 0);
         }
         self.sort();
-        let (modes_vec, modes_count, occurrences) = modes_on_sorted(self.data.iter(), self.len());
-        let modes_result = modes_vec.into_iter().map(|p| p.0.clone()).collect();
-        (modes_result, modes_count, occurrences)
+        modes_and_antimodes_on_sorted(self.data.iter().map(|p| p.0.clone()), self.len()).0
     }
 
     /// Returns the antimodes of the data.
     /// `antimodes_result` only returns the first 10 antimodes
     #[inline]
-    pub fn antimodes(&mut self) -> (Vec<T>, usize, u32) {
+    fn antimodes(&mut self) -> (Vec<T>, usize, u32) {
         if self.data.is_empty() {
             return (Vec::new(), 0, 0);
         }
         self.sort();
-        let (antimodes_vec, antimodes_count, occurrences) =
-            antimodes_on_sorted(self.data.iter(), self.len());
-        let antimodes_result: Vec<T> = antimodes_vec.into_iter().map(|p| p.0.clone()).collect();
+        modes_and_antimodes_on_sorted(self.data.iter().map(|p| p.0.clone()), self.len()).1
+    }
 
-        (antimodes_result, antimodes_count, occurrences)
+    /// Returns the modes and antimodes of the data.
+    /// `antimodes_result` only returns the first 10 antimodes
+    #[inline]
+    pub fn modes_antimodes(&mut self) -> ((Vec<T>, usize, u32), (Vec<T>, usize, u32)) {
+        if self.data.is_empty() {
+            return ((Vec::new(), 0, 0), (Vec::new(), 0, 0));
+        }
+        self.sort();
+        modes_and_antimodes_on_sorted(self.data.iter().map(|p| p.0.clone()), self.len())
     }
 }
 
