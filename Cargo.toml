@@ -1,6 +1,6 @@
 [package]
 name          = "qsv-stats"
-version       = "0.26.1"                                            #:version
+version       = "0.27.0"                                            #:version
 authors       = ["Joel Natividad <joel@dathere.com>"]
 description   = "Computing summary statistics on streams."
 documentation = "https://docs.rs/qsv-stats"
@@ -21,6 +21,3 @@ ahash      = "0.8"
 num-traits = "0.2"
 rayon      = "1.10"
 serde      = { version = "1", features = ["derive"] }
-
-[features]
-nightly = []
