@@ -545,7 +545,11 @@ impl<T: PartialOrd + PartialEq + Clone> Unsorted<T> {
             total
         } else {
             // Sequential processing
-            let mut count = if self.data.is_empty() { 0 } else { 1 };
+
+            // the statement below is equivalent to:
+            // let mut count = if self.data.is_empty() { 0 } else { 1 };
+            let mut count = u64::from(!self.data.is_empty());
+
             for window in self.data.windows(2) {
                 // safety: windows(2) guarantees window has length 2
                 if unsafe { window.get_unchecked(0) != window.get_unchecked(1) } {
