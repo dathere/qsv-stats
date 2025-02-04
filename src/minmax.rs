@@ -208,7 +208,7 @@ impl<T: PartialOrd + Clone> Commute for MinMax<T> {
         // Handle merging of first_value and last_value
         if self.len > 1 && v.len > 0 {
             if self.first_value.is_none() {
-                self.first_value = v.first_value.clone();
+                self.first_value.clone_from(&v.first_value);
             }
             // Add an additional pair count for the merge point
             if let (Some(ref last), Some(ref v_first)) = (&self.last_value, &v.first_value) {
