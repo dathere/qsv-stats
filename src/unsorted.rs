@@ -333,7 +333,7 @@ where
 ///
 /// # Type Parameters
 ///
-/// * `T`: The value type that implements PartialOrd + Clone
+/// * `T`: The value type that implements `PartialOrd` + `Clone`
 /// * `I`: The iterator type
 fn modes_and_antimodes_on_sorted<T, I>(
     mut it: I,
