@@ -16,12 +16,14 @@ pub enum SortOrder {
 /// and detecting sort order in a stream of data.
 #[derive(Clone, Copy, Deserialize, Serialize, Eq, PartialEq)]
 pub struct MinMax<T> {
-    len: u64,
+    len: u32,
     sort_order: SortOrder,
     min: Option<T>,
     max: Option<T>,
     first_value: Option<T>, // Tracks the first value added
     last_value: Option<T>,  // Tracks the last value added
+    ascending_pairs: u32,   // Track number of ascending pairs
+    descending_pairs: u32,  // Track number of descending pairs
 }
 
 impl<T: PartialOrd + Clone> MinMax<T> {
@@ -31,55 +33,75 @@ impl<T: PartialOrd + Clone> MinMax<T> {
         Default::default()
     }
 
-    /// Add a sample to the data and update the sort order.
+    /// Add a sample to the data and update the sort order & sortiness.
     #[inline]
     pub fn add(&mut self, sample: T) {
-        self.len += 1;
-
-        if self.len > 2 {
-            // Third or more value, update sort order based on last value
-            if let Some(ref last) = self.last_value {
-                match self.sort_order {
-                    SortOrder::Unsorted => {}
-                    SortOrder::Ascending => {
-                        if sample < *last {
-                            self.sort_order = SortOrder::Unsorted;
+        match self.len {
+            // first sample. Initialize everything
+            0 => {
+                self.min = Some(sample.clone());
+                self.max = Some(sample.clone());
+                self.first_value = Some(sample.clone());
+                self.last_value = Some(sample);
+                self.sort_order = SortOrder::Unsorted;
+            }
+            // second sample. Establish sort order
+            1 => {
+                if let Some(ref first) = self.first_value {
+                    match sample.partial_cmp(first) {
+                        Some(Ordering::Greater | Ordering::Equal) => {
+                            self.ascending_pairs = 1;
+                            self.sort_order = SortOrder::Ascending;
                         }
-                    }
-                    SortOrder::Descending => {
-                        if sample > *last {
-                            self.sort_order = SortOrder::Unsorted;
+                        Some(Ordering::Less) => {
+                            self.descending_pairs = 1;
+                            self.sort_order = SortOrder::Descending;
                         }
+                        None => self.sort_order = SortOrder::Unsorted,
                     }
                 }
+
+                if self.min.as_ref().is_none_or(|v| &sample < v) {
+                    self.min = Some(sample.clone());
+                } else if self.max.as_ref().is_none_or(|v| &sample > v) {
+                    self.max = Some(sample.clone());
+                }
+                self.last_value = Some(sample);
             }
-            self.last_value = Some(sample.clone());
-        } else if self.len == 1 {
-            // First value added
-            self.first_value = Some(sample.clone());
-            self.last_value = Some(sample.clone());
-            self.min = Some(sample.clone());
-            self.max = Some(sample);
-            self.sort_order = SortOrder::Unsorted;
-            return;
-        } else {
-            // Second value (self.len == 2), determine initial sort order
-            self.last_value = Some(sample.clone());
-            if let Some(ref first) = self.first_value {
-                self.sort_order = match sample.partial_cmp(first) {
-                    Some(Ordering::Greater | Ordering::Equal) => SortOrder::Ascending,
-                    Some(Ordering::Less) => SortOrder::Descending,
-                    None => SortOrder::Unsorted,
-                };
+            _ => {
+                // For all samples after the second, update sort order & sortiness
+                // Compare with last value to update sort order and pair counts
+                if let Some(ref last) = self.last_value {
+                    match sample.partial_cmp(last) {
+                        Some(Ordering::Greater) => {
+                            self.ascending_pairs += 1;
+                            if self.sort_order == SortOrder::Descending {
+                                self.sort_order = SortOrder::Unsorted;
+                            }
+                        }
+                        Some(Ordering::Equal) => {
+                            self.ascending_pairs += 1; // Consider equal pairs as ascending
+                        }
+                        Some(Ordering::Less) => {
+                            self.descending_pairs += 1;
+                            if self.sort_order == SortOrder::Ascending {
+                                self.sort_order = SortOrder::Unsorted;
+                            }
+                        }
+                        None => self.sort_order = SortOrder::Unsorted,
+                    }
+                }
+
+                if self.min.as_ref().is_none_or(|v| &sample < v) {
+                    self.min = Some(sample.clone());
+                } else if self.max.as_ref().is_none_or(|v| &sample > v) {
+                    self.max = Some(sample.clone());
+                }
+                self.last_value = Some(sample);
             }
         }
 
-        if self.min.as_ref().is_none_or(|v| &sample < v) {
-            self.min = Some(sample.clone());
-        }
-        if self.max.as_ref().is_none_or(|v| &sample > v) {
-            self.max = Some(sample);
-        }
+        self.len += 1;
     }
 
     /// Returns the minimum of the data set.
@@ -120,9 +142,47 @@ impl<T: PartialOrd + Clone> MinMax<T> {
     pub const fn sort_order(&self) -> SortOrder {
         self.sort_order
     }
+
+    /// Calculates a "sortiness" score for the data, indicating how close it is to being sorted.
+    ///
+    /// Returns a value between -1.0 and 1.0:
+    /// * 1.0 indicates perfectly ascending order
+    /// * -1.0 indicates perfectly descending order
+    /// * Values in between indicate the general tendency towards ascending or descending order
+    /// * 0.0 indicates either no clear ordering or empty/single-element collections
+    ///
+    /// # Examples
+    /// ```
+    /// use stats::MinMax;
+    ///
+    /// let mut asc: MinMax<i32> = vec![1, 2, 3, 4, 5].into_iter().collect();
+    /// assert_eq!(asc.sortiness(), 1.0);
+    ///
+    /// let mut desc: MinMax<i32> = vec![5, 4, 3, 2, 1].into_iter().collect();
+    /// assert_eq!(desc.sortiness(), -1.0);
+    ///
+    /// let mut mostly_asc: MinMax<i32> = vec![1, 2, 4, 3, 5].into_iter().collect();
+    /// assert!(mostly_asc.sortiness() > 0.0); // Positive but less than 1.0
+    /// ```
+    #[inline]
+    #[must_use]
+    pub fn sortiness(&self) -> f64 {
+        match self.len {
+            0 | 1 => 0.0,
+            _ => {
+                let total_pairs = self.ascending_pairs + self.descending_pairs;
+                if total_pairs == 0 {
+                    0.0
+                } else {
+                    (self.ascending_pairs as f64 - self.descending_pairs as f64)
+                        / total_pairs as f64
+                }
+            }
+        }
+    }
 }
 
-impl<T: PartialOrd> Commute for MinMax<T> {
+impl<T: PartialOrd + Clone> Commute for MinMax<T> {
     #[inline]
     fn merge(&mut self, v: MinMax<T>) {
         self.len += v.len;
@@ -141,10 +201,22 @@ impl<T: PartialOrd> Commute for MinMax<T> {
             self.sort_order = SortOrder::Unsorted;
         }
 
+        // Merge pair counts
+        self.ascending_pairs += v.ascending_pairs;
+        self.descending_pairs += v.descending_pairs;
+
         // Handle merging of first_value and last_value
         if self.len > 1 && v.len > 0 {
             if self.first_value.is_none() {
-                self.first_value = v.first_value;
+                self.first_value = v.first_value.clone();
+            }
+            // Add an additional pair count for the merge point
+            if let (Some(ref last), Some(ref v_first)) = (&self.last_value, &v.first_value) {
+                match v_first.partial_cmp(last) {
+                    Some(Ordering::Greater | Ordering::Equal) => self.ascending_pairs += 1,
+                    Some(Ordering::Less) => self.descending_pairs += 1,
+                    None => {}
+                }
             }
             self.last_value = v.last_value;
         }
@@ -161,6 +233,8 @@ impl<T: PartialOrd> Default for MinMax<T> {
             max: None,
             first_value: None,
             last_value: None,
+            ascending_pairs: 0,
+            descending_pairs: 0,
         }
     }
 }
@@ -289,5 +363,56 @@ mod test {
         assert_eq!(mx1.min(), Some(&2u32));
         assert_eq!(mx1.max(), Some(&41u32));
         assert_eq!(mx1.sort_order(), SortOrder::Ascending);
+    }
+
+    #[test]
+    fn test_sortiness() {
+        // Test empty
+        let minmax: MinMax<u32> = MinMax::new();
+        assert_eq!(minmax.sortiness(), 0.0);
+
+        // Test single element
+        let minmax: MinMax<u32> = vec![1].into_iter().collect();
+        assert_eq!(minmax.sortiness(), 0.0);
+
+        // Test perfectly ascending
+        let minmax: MinMax<u32> = vec![1, 2, 3, 4, 5].into_iter().collect();
+        assert_eq!(minmax.sortiness(), 1.0);
+
+        // Test perfectly descending
+        let minmax: MinMax<u32> = vec![5, 4, 3, 2, 1].into_iter().collect();
+        assert_eq!(minmax.sortiness(), -1.0);
+
+        // Test all equal
+        let minmax: MinMax<u32> = vec![1, 1, 1, 1].into_iter().collect();
+        assert_eq!(minmax.sortiness(), 1.0); // Equal pairs are considered ascending
+
+        // Test mostly ascending
+        let minmax: MinMax<u32> = vec![1, 2, 4, 3, 5].into_iter().collect();
+        assert!(minmax.sortiness() > 0.0 && minmax.sortiness() < 1.0);
+        assert_eq!(minmax.sortiness(), 0.5); // 2 ascending pairs, 1 descending pair
+
+        // Test mostly descending
+        let minmax: MinMax<u32> = vec![5, 4, 3, 4, 2].into_iter().collect();
+        assert!(minmax.sortiness() < 0.0 && minmax.sortiness() > -1.0);
+        assert_eq!(minmax.sortiness(), -0.5); // 1 ascending pair, 3 descending pairs
+    }
+
+    #[test]
+    fn test_sortiness_merge() {
+        let mut mx1: MinMax<u32> = vec![1, 2, 3].into_iter().collect();
+        let mx2: MinMax<u32> = vec![4, 5, 6].into_iter().collect();
+        assert_eq!(mx1.sortiness(), 1.0);
+        assert_eq!(mx2.sortiness(), 1.0);
+
+        mx1.merge(mx2);
+        assert_eq!(mx1.sortiness(), 1.0); // Should remain perfectly sorted after merge
+
+        let mut mx3: MinMax<u32> = vec![1, 2, 3].into_iter().collect();
+        let mx4: MinMax<u32> = vec![2, 1, 0].into_iter().collect();
+        mx3.merge(mx4);
+        assert_eq!(mx3, vec![1, 2, 3, 2, 1, 0].into_iter().collect());
+        assert!(mx3.sortiness() < 1.0); // Should show mixed sorting after merge
+        assert_eq!(mx3.sortiness(), -0.2);
     }
 }
