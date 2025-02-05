@@ -33,20 +33,44 @@ impl<T: PartialOrd + Clone> MinMax<T> {
         Default::default()
     }
 
-    /// Add a sample to the data and update the sort order & sortiness.
+    /// Add a sample to the data and track min/max, the sort order & "sortiness".
     #[inline]
     pub fn add(&mut self, sample: T) {
         match self.len {
-            // first sample. Initialize everything
-            0 => {
-                self.min = Some(sample.clone());
-                self.max = Some(sample.clone());
-                self.first_value = Some(sample.clone());
-                self.last_value = Some(sample);
-                self.sort_order = SortOrder::Unsorted;
+            2.. => {
+                // all samples after the second, update sort order & sortiness
+                // Compare with last value to update sort order and pair counts
+                // we have it as the first match arm for performance reasons
+                if let Some(ref last) = self.last_value {
+                    match sample.partial_cmp(last) {
+                        Some(Ordering::Greater) => {
+                            self.ascending_pairs += 1;
+                            if self.sort_order == SortOrder::Descending {
+                                self.sort_order = SortOrder::Unsorted;
+                            }
+                        }
+                        Some(Ordering::Equal) => self.ascending_pairs += 1,
+                        Some(Ordering::Less) => {
+                            self.descending_pairs += 1;
+                            if self.sort_order == SortOrder::Ascending {
+                                self.sort_order = SortOrder::Unsorted;
+                            }
+                        }
+                        None => self.sort_order = SortOrder::Unsorted,
+                    }
+                }
             }
-            // second sample. Establish sort order
+            0 => {
+                // first sample, initialize everything
+                self.first_value = Some(sample.clone());
+                self.min = Some(sample.clone());
+                self.max = Some(sample);
+                self.sort_order = SortOrder::Unsorted;
+                self.len = 1;
+                return;
+            }
             1 => {
+                // second sample, establish initial sort order
                 if let Some(ref first) = self.first_value {
                     match sample.partial_cmp(first) {
                         Some(Ordering::Greater | Ordering::Equal) => {
@@ -60,47 +84,18 @@ impl<T: PartialOrd + Clone> MinMax<T> {
                         None => self.sort_order = SortOrder::Unsorted,
                     }
                 }
-
-                if self.min.as_ref().is_none_or(|v| &sample < v) {
-                    self.min = Some(sample.clone());
-                } else if self.max.as_ref().is_none_or(|v| &sample > v) {
-                    self.max = Some(sample.clone());
-                }
-                self.last_value = Some(sample);
-            }
-            _ => {
-                // For all samples after the second, update sort order & sortiness
-                // Compare with last value to update sort order and pair counts
-                if let Some(ref last) = self.last_value {
-                    match sample.partial_cmp(last) {
-                        Some(Ordering::Greater) => {
-                            self.ascending_pairs += 1;
-                            if self.sort_order == SortOrder::Descending {
-                                self.sort_order = SortOrder::Unsorted;
-                            }
-                        }
-                        Some(Ordering::Equal) => {
-                            self.ascending_pairs += 1; // Consider equal pairs as ascending
-                        }
-                        Some(Ordering::Less) => {
-                            self.descending_pairs += 1;
-                            if self.sort_order == SortOrder::Ascending {
-                                self.sort_order = SortOrder::Unsorted;
-                            }
-                        }
-                        None => self.sort_order = SortOrder::Unsorted,
-                    }
-                }
-
-                if self.min.as_ref().is_none_or(|v| &sample < v) {
-                    self.min = Some(sample.clone());
-                } else if self.max.as_ref().is_none_or(|v| &sample > v) {
-                    self.max = Some(sample.clone());
-                }
-                self.last_value = Some(sample);
             }
         }
 
+        // Update min/max
+        if self.min.as_ref().is_none_or(|v| &sample < v) {
+            self.min = Some(sample.clone());
+        } else if self.max.as_ref().is_none_or(|v| &sample > v) {
+            self.max = Some(sample.clone());
+        }
+
+        // Update last value and number of samples
+        self.last_value = Some(sample);
         self.len += 1;
     }
 
