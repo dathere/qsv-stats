@@ -17,13 +17,12 @@ pub enum SortOrder {
 #[derive(Clone, Copy, Deserialize, Serialize, Eq, PartialEq)]
 pub struct MinMax<T> {
     len: u32,
-    sort_order: SortOrder,
     min: Option<T>,
     max: Option<T>,
-    first_value: Option<T>, // Tracks the first value added
-    last_value: Option<T>,  // Tracks the last value added
-    ascending_pairs: u32,   // Track number of ascending pairs
-    descending_pairs: u32,  // Track number of descending pairs
+    first_value: Option<T>,
+    last_value: Option<T>,
+    ascending_pairs: u32,
+    descending_pairs: u32,
 }
 
 impl<T: PartialOrd + Clone> MinMax<T> {
@@ -38,50 +37,28 @@ impl<T: PartialOrd + Clone> MinMax<T> {
     pub fn add(&mut self, sample: T) {
         match self.len {
             2.. => {
-                // all samples after the second, update sort order & sortiness
-                // Compare with last value to update sort order and pair counts
-                // we have it as the first match arm for performance reasons
                 if let Some(ref last) = self.last_value {
                     match sample.partial_cmp(last) {
-                        Some(Ordering::Greater) => {
-                            self.ascending_pairs += 1;
-                            if self.sort_order == SortOrder::Descending {
-                                self.sort_order = SortOrder::Unsorted;
-                            }
-                        }
+                        Some(Ordering::Greater) => self.ascending_pairs += 1,
                         Some(Ordering::Equal) => self.ascending_pairs += 1,
-                        Some(Ordering::Less) => {
-                            self.descending_pairs += 1;
-                            if self.sort_order == SortOrder::Ascending {
-                                self.sort_order = SortOrder::Unsorted;
-                            }
-                        }
-                        None => self.sort_order = SortOrder::Unsorted,
+                        Some(Ordering::Less) => self.descending_pairs += 1,
+                        None => {}
                     }
                 }
             }
             0 => {
-                // first sample, initialize everything
                 self.first_value = Some(sample.clone());
                 self.min = Some(sample.clone());
                 self.max = Some(sample);
-                self.sort_order = SortOrder::Unsorted;
                 self.len = 1;
                 return;
             }
             1 => {
-                // second sample, establish initial sort order
                 if let Some(ref first) = self.first_value {
                     match sample.partial_cmp(first) {
-                        Some(Ordering::Greater | Ordering::Equal) => {
-                            self.ascending_pairs = 1;
-                            self.sort_order = SortOrder::Ascending;
-                        }
-                        Some(Ordering::Less) => {
-                            self.descending_pairs = 1;
-                            self.sort_order = SortOrder::Descending;
-                        }
-                        None => self.sort_order = SortOrder::Unsorted,
+                        Some(Ordering::Greater | Ordering::Equal) => self.ascending_pairs = 1,
+                        Some(Ordering::Less) => self.descending_pairs = 1,
+                        None => {}
                     }
                 }
             }
@@ -134,8 +111,12 @@ impl<T: PartialOrd + Clone> MinMax<T> {
     /// Returns the current sort order of the data.
     #[inline]
     #[must_use]
-    pub const fn sort_order(&self) -> SortOrder {
-        self.sort_order
+    pub fn sort_order(&self) -> SortOrder {
+        match self.sortiness() {
+            1.0 => SortOrder::Ascending,
+            -1.0 => SortOrder::Descending,
+            _ => SortOrder::Unsorted,
+        }
     }
 
     /// Calculates a "sortiness" score for the data, indicating how close it is to being sorted.
@@ -162,16 +143,14 @@ impl<T: PartialOrd + Clone> MinMax<T> {
     #[inline]
     #[must_use]
     pub fn sortiness(&self) -> f64 {
-        match self.len {
-            0 | 1 => 0.0,
-            _ => {
-                let total_pairs = self.ascending_pairs + self.descending_pairs;
-                if total_pairs == 0 {
-                    0.0
-                } else {
-                    (self.ascending_pairs as f64 - self.descending_pairs as f64)
-                        / total_pairs as f64
-                }
+        if let 0 | 1 = self.len {
+            0.0
+        } else {
+            let total_pairs = self.ascending_pairs + self.descending_pairs;
+            if total_pairs == 0 {
+                0.0
+            } else {
+                (self.ascending_pairs as f64 - self.descending_pairs as f64) / total_pairs as f64
             }
         }
     }
@@ -188,14 +167,6 @@ impl<T: PartialOrd + Clone> Commute for MinMax<T> {
             self.max = v.max;
         }
 
-        // Merge sort order logic
-        if self.sort_order == SortOrder::Unsorted
-            || v.sort_order == SortOrder::Unsorted
-            || self.sort_order != v.sort_order
-        {
-            self.sort_order = SortOrder::Unsorted;
-        }
-
         // Merge pair counts
         self.ascending_pairs += v.ascending_pairs;
         self.descending_pairs += v.descending_pairs;
@@ -205,7 +176,6 @@ impl<T: PartialOrd + Clone> Commute for MinMax<T> {
             if self.first_value.is_none() {
                 self.first_value.clone_from(&v.first_value);
             }
-            // Add an additional pair count for the merge point
             if let (Some(ref last), Some(ref v_first)) = (&self.last_value, &v.first_value) {
                 match v_first.partial_cmp(last) {
                     Some(Ordering::Greater | Ordering::Equal) => self.ascending_pairs += 1,
@@ -223,7 +193,6 @@ impl<T: PartialOrd> Default for MinMax<T> {
     fn default() -> MinMax<T> {
         MinMax {
             len: 0,
-            sort_order: SortOrder::Unsorted, // Start with Unsorted by default
             min: None,
             max: None,
             first_value: None,
@@ -240,7 +209,24 @@ impl<T: fmt::Debug> fmt::Debug for MinMax<T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match (&self.min, &self.max) {
             (Some(min), Some(max)) => {
-                write!(f, "[{min:?}, {max:?}], sort_order: {:?}", self.sort_order)
+                let sort_status = if let 0 | 1 = self.len {
+                    SortOrder::Unsorted
+                } else {
+                    let total_pairs = self.ascending_pairs + self.descending_pairs;
+                    if total_pairs == 0 {
+                        SortOrder::Unsorted
+                    } else {
+                        let sortiness = (self.ascending_pairs as f64
+                            - self.descending_pairs as f64)
+                            / total_pairs as f64;
+                        match sortiness {
+                            1.0 => SortOrder::Ascending,
+                            -1.0 => SortOrder::Descending,
+                            _ => SortOrder::Unsorted,
+                        }
+                    }
+                };
+                write!(f, "[{min:?}, {max:?}], sort_order: {sort_status:?}")
             }
             (&None, &None) => write!(f, "N/A"),
             _ => unreachable!(),
