@@ -36,17 +36,20 @@ impl<T: PartialOrd + Clone> MinMax<T> {
     #[inline]
     pub fn add(&mut self, sample: T) {
         match self.len {
+            // this comes first because it's the most common case
             2.. => {
                 if let Some(ref last) = self.last_value {
                     match sample.partial_cmp(last) {
                         Some(Ordering::Greater) => self.ascending_pairs += 1,
-                        Some(Ordering::Equal) => self.ascending_pairs += 1,
                         Some(Ordering::Less) => self.descending_pairs += 1,
+                        // this comes last because it's the least common case
+                        Some(Ordering::Equal) => self.ascending_pairs += 1,
                         None => {}
                     }
                 }
             }
             0 => {
+                // first sample
                 self.first_value = Some(sample.clone());
                 self.min = Some(sample.clone());
                 self.max = Some(sample);
@@ -54,6 +57,7 @@ impl<T: PartialOrd + Clone> MinMax<T> {
                 return;
             }
             1 => {
+                // second sample
                 if let Some(ref first) = self.first_value {
                     match sample.partial_cmp(first) {
                         Some(Ordering::Greater | Ordering::Equal) => self.ascending_pairs = 1,
