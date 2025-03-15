@@ -10,7 +10,7 @@ readme        = "README.md"
 keywords      = ["statistics", "frequency", "mean", "stddev", "quartiles"]
 categories    = ["science", "mathematics"]
 license       = "MIT OR Unlicense"
-edition       = "2021"
+edition       = "2024"
 rust-version  = "1.85"
 
 [lib]

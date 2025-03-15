@@ -230,7 +230,7 @@ impl<T: Eq + Hash> Frequencies<T> {
     pub fn items_with_count(&self, n: u64) -> Vec<&T> {
         self.data
             .iter()
-            .filter(|(_, &count)| count == n)
+            .filter(|&(_, &count)| count == n)
             .map(|(item, _)| item)
             .collect()
     }
