@@ -82,15 +82,14 @@ impl<T: Eq + Hash> Frequencies<T> {
     #[inline]
     #[must_use]
     pub fn most_frequent(&self) -> (Vec<(&T, u64)>, u64) {
+        let len = self.data.len();
+        let mut counts = Vec::with_capacity(len);
         let mut total_count = 0_u64;
-        let mut counts: Vec<_> = self
-            .data
-            .iter()
-            .map(|(k, &v)| {
-                total_count += v;
-                (k, v)
-            })
-            .collect();
+        
+        for (k, &v) in &self.data {
+            total_count += v;
+            counts.push((k, v));
+        }
         counts.sort_unstable_by(|&(_, c1), &(_, c2)| c2.cmp(&c1));
         (counts, total_count)
     }
@@ -246,11 +245,27 @@ impl<T: Eq + Hash> Frequencies<T> {
     pub fn has_count(&self, n: u64) -> bool {
         self.data.values().any(|&count| count == n)
     }
+
+    /// Add specialized method for single increment
+    #[inline]
+    pub fn increment_by(&mut self, v: T, count: u64) {
+        match self.data.entry(v) {
+            Entry::Vacant(entry) => {
+                entry.insert(count);
+            }
+            Entry::Occupied(mut entry) => {
+                *entry.get_mut() += count;
+            }
+        }
+    }
 }
 
 impl<T: Eq + Hash> Commute for Frequencies<T> {
     #[inline]
     fn merge(&mut self, v: Frequencies<T>) {
+        // Reserve additional capacity to avoid reallocations
+        self.data.reserve(v.data.len());
+        
         for (k, v2) in v.data {
             match self.data.entry(k) {
                 Entry::Vacant(v1) => {
