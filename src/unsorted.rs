@@ -124,7 +124,7 @@ where
             // so idx-1 and idx are valid indices into data
             let v1 = unsafe { data.get_unchecked(idx - 1) }.to_f64()?;
             let v2 = unsafe { data.get_unchecked(idx) }.to_f64()?;
-            (v1 + v2) / 2.0
+            f64::midpoint(v1, v2)
         }
         // Odd length case - return the middle element
         // Safety: we know the index is within bounds
@@ -194,14 +194,18 @@ where
                 // Q1 = (x_{k-1} + x_k) / 2
                 // Q2 = (x_{2k-1} + x_{2k}) / 2
                 // Q3 = (x_{3k-1} + x_{3k}) / 2
-                let q1 =
-                    (data.get_unchecked(k - 1).to_f64()? + data.get_unchecked(k).to_f64()?) / 2.0;
-                let q2 = (data.get_unchecked(2 * k - 1).to_f64()?
-                    + data.get_unchecked(2 * k).to_f64()?)
-                    / 2.0;
-                let q3 = (data.get_unchecked(3 * k - 1).to_f64()?
-                    + data.get_unchecked(3 * k).to_f64()?)
-                    / 2.0;
+                let q1 = f64::midpoint(
+                    data.get_unchecked(k - 1).to_f64()?,
+                    data.get_unchecked(k).to_f64()?,
+                );
+                let q2 = f64::midpoint(
+                    data.get_unchecked(2 * k - 1).to_f64()?,
+                    data.get_unchecked(2 * k).to_f64()?,
+                );
+                let q3 = f64::midpoint(
+                    data.get_unchecked(3 * k - 1).to_f64()?,
+                    data.get_unchecked(3 * k).to_f64()?,
+                );
                 (q1, q2, q3)
             }
             1 => {
@@ -215,12 +219,15 @@ where
                 // Q1 = (x_{k-1} + x_k) / 2
                 // Q2 = x_{2k}
                 // Q3 = (x_{3k} + x_{3k+1}) / 2
-                let q1 =
-                    (data.get_unchecked(k - 1).to_f64()? + data.get_unchecked(k).to_f64()?) / 2.0;
+                let q1 = f64::midpoint(
+                    data.get_unchecked(k - 1).to_f64()?,
+                    data.get_unchecked(k).to_f64()?,
+                );
                 let q2 = data.get_unchecked(2 * k).to_f64()?;
-                let q3 = (data.get_unchecked(3 * k).to_f64()?
-                    + data.get_unchecked(3 * k + 1).to_f64()?)
-                    / 2.0;
+                let q3 = f64::midpoint(
+                    data.get_unchecked(3 * k).to_f64()?,
+                    data.get_unchecked(3 * k + 1).to_f64()?,
+                );
                 (q1, q2, q3)
             }
             2 => {
@@ -235,9 +242,10 @@ where
                 // Q2 = (x_{2k} + x_{2k+1}) / 2
                 // Q3 = x_{3k+1}
                 let q1 = data.get_unchecked(k).to_f64()?;
-                let q2 = (data.get_unchecked(2 * k).to_f64()?
-                    + data.get_unchecked(2 * k + 1).to_f64()?)
-                    / 2.0;
+                let q2 = f64::midpoint(
+                    data.get_unchecked(2 * k).to_f64()?,
+                    data.get_unchecked(2 * k + 1).to_f64()?,
+                );
                 let q3 = data.get_unchecked(3 * k + 1).to_f64()?;
                 (q1, q2, q3)
             }
@@ -1080,29 +1088,31 @@ mod test {
         char_data.extend('a'..='e');
         let result = char_data.custom_percentiles(&[25, 50, 75]).unwrap();
         assert_eq!(result, vec!['b', 'c', 'd']);
-        
+
         // Test with floats
         let mut float_data = Unsorted::new();
         float_data.extend(vec![1.1, 2.2, 3.3, 4.4, 5.5, 6.6, 7.7, 8.8, 9.9]);
-        let result = float_data.custom_percentiles(&[10, 30, 50, 70, 90]).unwrap();
+        let result = float_data
+            .custom_percentiles(&[10, 30, 50, 70, 90])
+            .unwrap();
         assert_eq!(result, vec![1.1, 3.3, 5.5, 7.7, 9.9]);
-        
+
         // Test with empty percentiles array
         let result = float_data.custom_percentiles(&[]).unwrap();
         assert_eq!(result, Vec::<f64>::new());
-        
+
         // Test with duplicate percentiles
         let result = float_data.custom_percentiles(&[50, 50, 50]).unwrap();
         assert_eq!(result, vec![5.5]);
-        
+
         // Test with extreme percentiles
         let result = float_data.custom_percentiles(&[0, 100]).unwrap();
         assert_eq!(result, vec![1.1, 9.9]);
-        
+
         // Test with unsorted percentiles
         let result = float_data.custom_percentiles(&[75, 25, 50]).unwrap();
         assert_eq!(result, vec![3.3, 5.5, 7.7]); // results always sorted
-        
+
         // Test with single element
         let mut single = Unsorted::new();
         single.add(42);
