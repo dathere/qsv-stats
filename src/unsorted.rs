@@ -577,7 +577,7 @@ impl<T: PartialOrd + Clone> Unsorted<T> {
             return None;
         }
         self.sort();
-        mode_on_sorted(self.data.iter().map(|p| &p.0)).map(Clone::clone)
+        mode_on_sorted(self.data.iter().map(|p| &p.0)).cloned()
     }
 
     /// Returns the modes of the data.
