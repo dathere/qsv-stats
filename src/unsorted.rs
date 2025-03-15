@@ -569,7 +569,7 @@ impl<T: PartialOrd + Clone> Unsorted<T> {
             return None;
         }
         self.sort();
-        mode_on_sorted(self.data.iter()).map(|p| p.0.clone())
+        mode_on_sorted(self.data.iter().map(|p| &p.0)).map(Clone::clone)
     }
 
     /// Returns the modes of the data.
@@ -685,146 +685,74 @@ impl<T: PartialOrd> Extend<T> for Unsorted<T> {
     }
 }
 
-fn custom_quartiles_on_sorted<T>(data: &[T], additional_percentiles: &[u8]) -> Option<Vec<f64>>
+fn custom_percentiles_on_sorted<T>(data: &[Partial<T>], percentiles: &[u8]) -> Option<Vec<T>>
 where
-    T: PartialOrd + ToPrimitive,
+    T: PartialOrd + Clone,
 {
     let len = data.len();
 
-    // Early return for small arrays
-    if let 0..=2 = len {
+    // Early return for empty array or invalid percentiles
+    if len == 0 || percentiles.iter().any(|&p| p > 100) {
         return None;
     }
 
-    // Create a sorted vector of unique percentiles including standard quartiles
-    let mut all_percentiles = vec![25, 50, 75];
-    all_percentiles.extend(additional_percentiles.iter().copied());
-    all_percentiles.sort_unstable();
-    all_percentiles.dedup();
+    // Create a sorted vector of unique percentiles
+    let mut unique_percentiles = percentiles.to_vec();
+    unique_percentiles.sort_unstable();
+    unique_percentiles.dedup();
 
-    // Validate percentiles are in valid range
-    if all_percentiles.iter().any(|&p| p > 100) {
-        return None;
-    }
-
-    let mut results = Vec::with_capacity(all_percentiles.len());
-
-    // Calculate k and remainder in one division for quartiles
-    let k = len / 4;
-    let remainder = len % 4;
+    let mut results = Vec::with_capacity(unique_percentiles.len());
 
     // SAFETY: All index calculations below are guaranteed to be in bounds
-    // because we've verified len >= 3 above
+    // because we've verified len > 0 and the rank calculation ensures
+    // the index is within bounds
     unsafe {
-        // First handle the standard quartiles (25, 50, 75)
-        let (q1, q2, q3) = match remainder {
-            0 => {
-                // Length is multiple of 4 (4k)
-                // Q1 = (x_{k-1} + x_k) / 2
-                // Q2 = (x_{2k-1} + x_{2k}) / 2
-                // Q3 = (x_{3k-1} + x_{3k}) / 2
-                let q1 =
-                    (data.get_unchecked(k - 1).to_f64()? + data.get_unchecked(k).to_f64()?) / 2.0;
-                let q2 = (data.get_unchecked(2 * k - 1).to_f64()?
-                    + data.get_unchecked(2 * k).to_f64()?)
-                    / 2.0;
-                let q3 = (data.get_unchecked(3 * k - 1).to_f64()?
-                    + data.get_unchecked(3 * k).to_f64()?)
-                    / 2.0;
-                (q1, q2, q3)
-            }
-            1 => {
-                // Length is 4k + 1
-                // Q1 = (x_{k-1} + x_k) / 2
-                // Q2 = x_{2k}
-                // Q3 = (x_{3k} + x_{3k+1}) / 2
-                let q1 =
-                    (data.get_unchecked(k - 1).to_f64()? + data.get_unchecked(k).to_f64()?) / 2.0;
-                let q2 = data.get_unchecked(2 * k).to_f64()?;
-                let q3 = (data.get_unchecked(3 * k).to_f64()?
-                    + data.get_unchecked(3 * k + 1).to_f64()?)
-                    / 2.0;
-                (q1, q2, q3)
-            }
-            2 => {
-                // Length is 4k + 2
-                // Q1 = x_k
-                // Q2 = (x_{2k} + x_{2k+1}) / 2
-                // Q3 = x_{3k+1}
-                let q1 = data.get_unchecked(k).to_f64()?;
-                let q2 = (data.get_unchecked(2 * k).to_f64()?
-                    + data.get_unchecked(2 * k + 1).to_f64()?)
-                    / 2.0;
-                let q3 = data.get_unchecked(3 * k + 1).to_f64()?;
-                (q1, q2, q3)
-            }
-            _ => {
-                // Length is 4k + 3
-                // Q1 = x_k
-                // Q2 = x_{2k+1}
-                // Q3 = x_{3k+2}
-                let q1 = data.get_unchecked(k).to_f64()?;
-                let q2 = data.get_unchecked(2 * k + 1).to_f64()?;
-                let q3 = data.get_unchecked(3 * k + 2).to_f64()?;
-                (q1, q2, q3)
-            }
-        };
+        for &p in &unique_percentiles {
+            // Calculate the ordinal rank using nearest-rank method
+            // see https://en.wikipedia.org/wiki/Percentile#The_nearest-rank_method
+            // n = ⌈(P/100) × N⌉
+            let rank = ((f64::from(p) / 100.0) * len as f64).ceil() as usize;
 
-        // Add standard quartiles to results
-        results.extend([q1, q2, q3]);
+            // Convert to 0-based index
+            let idx = rank.saturating_sub(1);
 
-        // Handle additional percentiles using linear interpolation
-        for &p in additional_percentiles {
-            if p != 25 && p != 50 && p != 75 {
-                let rank = (f64::from(p) / 100.0) * (len as f64 - 1.0);
-                let lower_idx = rank.floor() as usize;
-                let upper_idx = rank.ceil() as usize;
-
-                let value = if lower_idx == upper_idx {
-                    data.get_unchecked(lower_idx).to_f64()?
-                } else {
-                    let lower = data.get_unchecked(lower_idx).to_f64()?;
-                    let upper = data.get_unchecked(upper_idx).to_f64()?;
-                    let fraction = rank - (lower_idx as f64);
-                    lower + (fraction * (upper - lower))
-                };
-                results.push(value);
-            }
+            // Get the value at that rank and extract the inner value
+            results.push(data.get_unchecked(idx).0.clone());
         }
     }
 
     Some(results)
 }
 
-impl<T: PartialOrd + ToPrimitive> Unsorted<T> {
-    /// Returns the quartiles and additional percentiles of the data.
-    /// The result vector always includes Q1 (25th), Q2 (50th), and Q3 (75th) percentiles,
-    /// followed by any additional percentiles specified (in ascending order).
+impl<T: PartialOrd + Clone> Unsorted<T> {
+    /// Returns the requested percentiles of the data.
+    ///
+    /// Uses the nearest-rank method to compute percentiles.
+    /// Each returned value is an actual value from the dataset.
     ///
     /// # Arguments
-    /// * `additional_percentiles` - A slice of u8 values representing additional percentiles to compute (0-100)
+    /// * `percentiles` - A slice of u8 values representing percentiles to compute (0-100)
     ///
     /// # Returns
-    /// * `None` if the data has fewer than 3 elements or if any percentile is > 100
-    /// * `Some(Vec<f64>)` containing all percentile values in ascending order
+    /// * `None` if the data is empty or if any percentile is > 100
+    /// * `Some(Vec<T>)` containing percentile values in the same order as requested
     ///
     /// # Example
     /// ```
     /// use stats::Unsorted;
     /// let mut data = Unsorted::new();
     /// data.extend(vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
-    /// let percentiles = vec![10, 90];
-    /// let results = data.custom_quartiles(&percentiles).unwrap();
-    /// // results contains [Q1, Q2, Q3, P10, P90] values
-    /// assert_eq!(results.len(), 5);
+    /// let percentiles = vec![25, 50, 75];
+    /// let results = data.custom_percentiles(&percentiles).unwrap();
+    /// assert_eq!(results, vec![3, 5, 8]);
     /// ```
     #[inline]
-    pub fn custom_quartiles(&mut self, additional_percentiles: &[u8]) -> Option<Vec<f64>> {
+    pub fn custom_percentiles(&mut self, percentiles: &[u8]) -> Option<Vec<T>> {
         if self.data.is_empty() {
             return None;
         }
         self.sort();
-        custom_quartiles_on_sorted(&self.data, additional_percentiles)
+        custom_percentiles_on_sorted(&self.data, percentiles)
     }
 }
 
@@ -1133,28 +1061,52 @@ mod test {
     }
 
     #[test]
-    fn test_custom_quartiles() {
+    fn test_custom_percentiles() {
+        // Test with integers
         let mut unsorted: Unsorted<i32> = Unsorted::new();
         unsorted.extend(1..=11); // [1,2,3,4,5,6,7,8,9,10,11]
 
-        // Test with no additional percentiles (should be same as regular quartiles)
-        let result = unsorted.custom_quartiles(&[]).unwrap();
-        assert_eq!(result, vec![3.0, 6.0, 9.0]);
+        let result = unsorted.custom_percentiles(&[25, 50, 75]).unwrap();
+        assert_eq!(result, vec![3, 6, 9]);
 
-        // Test with additional percentiles
-        let result = unsorted.custom_quartiles(&[10, 90]).unwrap();
-        assert_eq!(result, vec![3.0, 6.0, 9.0, 2.0, 10.0]);
+        // Test with strings
+        let mut str_data = Unsorted::new();
+        str_data.extend(vec!["a", "b", "c", "d", "e"]);
+        let result = str_data.custom_percentiles(&[20, 40, 60, 80]).unwrap();
+        assert_eq!(result, vec!["a", "b", "c", "d"]);
 
+        // Test with chars
+        let mut char_data = Unsorted::new();
+        char_data.extend('a'..='e');
+        let result = char_data.custom_percentiles(&[25, 50, 75]).unwrap();
+        assert_eq!(result, vec!['b', 'c', 'd']);
+        
+        // Test with floats
+        let mut float_data = Unsorted::new();
+        float_data.extend(vec![1.1, 2.2, 3.3, 4.4, 5.5, 6.6, 7.7, 8.8, 9.9]);
+        let result = float_data.custom_percentiles(&[10, 30, 50, 70, 90]).unwrap();
+        assert_eq!(result, vec![1.1, 3.3, 5.5, 7.7, 9.9]);
+        
+        // Test with empty percentiles array
+        let result = float_data.custom_percentiles(&[]).unwrap();
+        assert_eq!(result, Vec::<f64>::new());
+        
         // Test with duplicate percentiles
-        let result = unsorted.custom_quartiles(&[25, 75, 50]).unwrap();
-        assert_eq!(result, vec![3.0, 6.0, 9.0]);
-
-        // Test with invalid percentile
-        assert_eq!(unsorted.custom_quartiles(&[101]), None);
-
-        // Test with small dataset
-        let mut small = Unsorted::new();
-        small.extend(1..=2);
-        assert_eq!(small.custom_quartiles(&[]), None);
+        let result = float_data.custom_percentiles(&[50, 50, 50]).unwrap();
+        assert_eq!(result, vec![5.5]);
+        
+        // Test with extreme percentiles
+        let result = float_data.custom_percentiles(&[0, 100]).unwrap();
+        assert_eq!(result, vec![1.1, 9.9]);
+        
+        // Test with unsorted percentiles
+        let result = float_data.custom_percentiles(&[75, 25, 50]).unwrap();
+        assert_eq!(result, vec![3.3, 5.5, 7.7]); // results always sorted
+        
+        // Test with single element
+        let mut single = Unsorted::new();
+        single.add(42);
+        let result = single.custom_percentiles(&[0, 50, 100]).unwrap();
+        assert_eq!(result, vec![42, 42, 42]);
     }
 }
