@@ -72,11 +72,7 @@ impl OnlineStats {
     /// Return the current mean.
     #[must_use]
     pub const fn mean(&self) -> f64 {
-        if self.is_empty() {
-            f64::NAN
-        } else {
-            self.mean
-        }
+        if self.is_empty() { f64::NAN } else { self.mean }
     }
 
     /// Return the current standard deviation.
@@ -247,7 +243,7 @@ impl<T: ToPrimitive> Extend<T> for OnlineStats {
 #[cfg(test)]
 mod test {
     use super::OnlineStats;
-    use {crate::merge_all, crate::Commute};
+    use {crate::Commute, crate::merge_all};
 
     #[test]
     fn online() {

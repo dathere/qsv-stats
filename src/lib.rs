@@ -14,8 +14,8 @@ use serde::{Deserialize, Serialize};
 
 pub use frequency::{Frequencies, UniqueValues};
 pub use minmax::MinMax;
-pub use online::{mean, stddev, variance, OnlineStats};
-pub use unsorted::{antimodes, mad, median, mode, modes, quartiles, Unsorted};
+pub use online::{OnlineStats, mean, stddev, variance};
+pub use unsorted::{Unsorted, antimodes, mad, median, mode, modes, quartiles};
 
 /// Partial wraps a type that satisfies `PartialOrd` and implements `Ord`.
 ///
@@ -184,8 +184,8 @@ mod unsorted;
 
 #[cfg(test)]
 mod test {
-    use crate::unsorted::Unsorted;
     use crate::Commute;
+    use crate::unsorted::Unsorted;
 
     #[test]
     fn options() {
