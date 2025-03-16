@@ -477,6 +477,39 @@ impl<T: PartialOrd> Unsorted<T> {
     const fn already_sorted(&mut self) {
         self.sorted = true;
     }
+
+    /// Add multiple elements efficiently
+    #[inline]
+    pub fn add_bulk(&mut self, values: Vec<T>) {
+        self.sorted = false;
+        self.data.reserve(values.len());
+        self.data.extend(values.into_iter().map(Partial));
+    }
+
+    /// Shrink capacity to fit current data
+    #[inline]
+    pub fn shrink_to_fit(&mut self) {
+        self.data.shrink_to_fit();
+    }
+
+    /// Create with specific capacity
+    #[inline]
+    pub fn with_capacity(capacity: usize) -> Self {
+        Unsorted {
+            sorted: true,
+            data: Vec::with_capacity(capacity),
+        }
+    }
+
+    /// Add a value assuming it's greater than all existing values
+    #[inline]
+    pub fn push_ascending(&mut self, value: T) {
+        if let Some(last) = self.data.last() {
+            debug_assert!(last.0 <= value, "Value must be >= than last element");
+        }
+        self.data.push(Partial(value));
+        // Data remains sorted
+    }
 }
 
 impl<T: PartialOrd + PartialEq + Clone> Unsorted<T> {
