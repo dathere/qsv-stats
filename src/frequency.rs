@@ -85,7 +85,7 @@ impl<T: Eq + Hash> Frequencies<T> {
         let len = self.data.len();
         let mut counts = Vec::with_capacity(len);
         let mut total_count = 0_u64;
-        
+
         for (k, &v) in &self.data {
             total_count += v;
             counts.push((k, v));
@@ -265,7 +265,7 @@ impl<T: Eq + Hash> Commute for Frequencies<T> {
     fn merge(&mut self, v: Frequencies<T>) {
         // Reserve additional capacity to avoid reallocations
         self.data.reserve(v.data.len());
-        
+
         for (k, v2) in v.data {
             match self.data.entry(k) {
                 Entry::Vacant(v1) => {
