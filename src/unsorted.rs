@@ -151,6 +151,9 @@ where
     median_on_sorted(&abs_diff_vec)
 }
 
+// This implementation follows Method 3 from https://en.wikipedia.org/wiki/Quartile
+// It divides data into quarters based on the length n = 4k + r where r is remainder.
+// For each remainder case (0,1,2,3), it uses different formulas to compute Q1, Q2, Q3.
 fn quartiles_on_sorted<T>(data: &[T]) -> Option<(f64, f64, f64)>
 where
     T: PartialOrd + ToPrimitive,
