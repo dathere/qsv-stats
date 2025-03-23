@@ -1,5 +1,5 @@
 use std::collections::BinaryHeap;
-// use ahash::AHashMap;
+// use foldhash::{HashMap, HashMapExt};
 use std::default::Default;
 use std::iter::{FromIterator, IntoIterator};
 
@@ -68,7 +68,7 @@ pub fn mode_on_sorted<T, I>(it: I) -> Option<T>
 //     T: Eq + Hash + Clone,
 //     I: Iterator<Item = T>,
 // {
-//     let mut counts = AHashMap::new();
+//     let mut counts = HashMap::new();
 //     let mut mode = None;
 //     let mut mode_count = 0;
 //     for x in it {

@@ -1,4 +1,4 @@
-use ahash::AHashMap;
+use foldhash::{HashMap, HashMapExt};
 use std::collections::hash_map::{Entry, Keys};
 use std::hash::Hash;
 
@@ -8,7 +8,7 @@ use crate::Commute;
 /// A commutative data structure for exact frequency counts.
 #[derive(Clone)]
 pub struct Frequencies<T> {
-    data: AHashMap<T, u64>,
+    data: HashMap<T, u64>,
 }
 
 #[cfg(debug_assertions)]
@@ -283,7 +283,7 @@ impl<T: Eq + Hash> Default for Frequencies<T> {
     #[inline]
     fn default() -> Frequencies<T> {
         Frequencies {
-            data: AHashMap::with_capacity(1_000),
+            data: HashMap::with_capacity(1_000),
         }
     }
 }
