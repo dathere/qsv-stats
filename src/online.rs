@@ -146,7 +146,7 @@ impl OnlineStats {
 
         // Early return for special cases to avoid unnecessary computations
         if sample <= 0.0 {
-            if sample < 0.0 {
+            if sample.is_sign_negative() {
                 self.has_negative = true;
             } else {
                 self.has_zero = true;
