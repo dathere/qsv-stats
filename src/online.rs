@@ -44,13 +44,7 @@ where
 /// - 64-byte alignment for cache line efficiency
 /// - Grouped related fields together
 /// - Uses bit flags to reduce padding overhead
-///
-/// Optimized memory layout for better cache performance:
-/// - 64-byte alignment for cache line efficiency
-/// - Grouped related fields together
-/// - Uses bit flags to reduce padding overhead
 #[derive(Clone, Copy, Serialize, Deserialize, PartialEq)]
-#[repr(C, align(64))]
 #[repr(C, align(64))]
 pub struct OnlineStats {
     // Core statistics (40 bytes)
@@ -109,7 +103,7 @@ impl OnlineStats {
     /// Return the current harmonic mean.
     #[must_use]
     pub fn harmonic_mean(&self) -> f64 {
-        if self.is_empty() || self.has_zero() || self.has_negative() {
+        if self.is_empty() || self.has_zero || self.has_negative {
             f64::NAN
         } else {
             (self.size as f64) / self.harmonic_sum
@@ -121,9 +115,9 @@ impl OnlineStats {
     pub fn geometric_mean(&self) -> f64 {
         if self.is_empty() {
             f64::NAN
-        } else if self.has_zero() {
+        } else if self.has_zero {
             0.0
-        } else if self.has_negative()
+        } else if self.has_negative
             || self.geometric_sum.is_infinite()
             || self.geometric_sum.is_nan()
         {
@@ -131,32 +125,6 @@ impl OnlineStats {
         } else {
             (self.geometric_sum / (self.size as f64)).exp()
         }
-    }
-
-    /// Check if the dataset contains zero values
-    #[inline]
-    #[must_use]
-    pub const fn has_zero(&self) -> bool {
-        (self.flags & FLAG_HAS_ZERO) != 0
-    }
-
-    /// Check if the dataset contains negative values
-    #[inline]
-    #[must_use]
-    pub const fn has_negative(&self) -> bool {
-        (self.flags & FLAG_HAS_NEGATIVE) != 0
-    }
-
-    /// Set the has_zero flag
-    #[inline]
-    fn set_has_zero(&mut self) {
-        self.flags |= FLAG_HAS_ZERO;
-    }
-
-    /// Set the has_negative flag
-    #[inline]
-    fn set_has_negative(&mut self) {
-        self.flags |= FLAG_HAS_NEGATIVE;
     }
 
     // TODO: Calculate kurtosis
@@ -178,14 +146,14 @@ impl OnlineStats {
         // Early return for special cases to avoid unnecessary computations
         if sample <= 0.0 {
             if sample < 0.0 {
-                self.set_has_negative();
+                self.has_negative = true;
             } else {
-                self.set_has_zero();
+                self.has_zero = true;
             }
             return;
         }
 
-        if self.has_negative() || self.has_zero() {
+        if self.has_negative || self.has_zero {
             return;
         }
         // Only compute these if we have all positive numbers
