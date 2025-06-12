@@ -1047,8 +1047,6 @@ impl<T: PartialOrd + ToPrimitive + Clone> Unsorted<T> {
     /// - Need to find multiple order statistics (3 separate quickselect calls)
     /// - Overhead of copying data to avoid mutation
     /// - Rayon's highly optimized parallel sorting
-    ///
-    /// Consider using `quartiles_adaptive()` for automatic algorithm selection.
     #[inline]
     pub fn quartiles_with_selection(&mut self) -> Option<(f64, f64, f64)> {
         if self.data.is_empty() {
@@ -1058,26 +1056,6 @@ impl<T: PartialOrd + ToPrimitive + Clone> Unsorted<T> {
         let mut data_copy: Vec<Partial<T>> =
             self.data.iter().map(|x| Partial(x.0.clone())).collect();
         quartiles_with_selection(&mut data_copy)
-    }
-
-    /// Returns the quartiles using an adaptive algorithm that chooses between
-    /// sorting and zero-copy selection based on data size.
-    ///
-    /// For datasets between 1,000 and 10,000 elements, uses the zero-copy selection
-    /// approach which can be faster in this range. For all other sizes, uses the
-    /// sorting-based approach which tends to be more efficient due to rayon's
-    /// highly optimized parallel sorting implementation.
-    ///
-    /// We don't consider the selection approach here because benchmarks show that
-    /// it is slower than the sorting-based approach for all data sizes in the benchmark.
-    #[inline]
-    pub fn quartiles_adaptive(&mut self) -> Option<(f64, f64, f64)> {
-        // Only use zero-copy selection for random data in sweet spot range
-        if self.data.len() > 1_000 && self.data.len() < 10_000 {
-            self.quartiles_zero_copy()
-        } else {
-            self.quartiles() // Use sorting
-        }
     }
 }
 
