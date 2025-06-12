@@ -39,15 +39,27 @@ where
 }
 
 /// Online state for computing mean, variance and standard deviation.
+///
+/// Optimized memory layout for better cache performance:
+/// - 64-byte alignment for cache line efficiency
+/// - Grouped related fields together
+/// - Uses bit flags to reduce padding overhead
 #[derive(Clone, Copy, Serialize, Deserialize, PartialEq)]
+#[repr(C, align(64))]
 pub struct OnlineStats {
-    size: u64,
-    mean: f64,
-    q: f64,
-    harmonic_sum: f64,
-    geometric_sum: f64,
-    has_zero: bool,
-    has_negative: bool,
+    // Core statistics (40 bytes)
+    size: u64,          // 8 bytes
+    mean: f64,          // 8 bytes
+    q: f64,             // 8 bytes
+    harmonic_sum: f64,  // 8 bytes
+    geometric_sum: f64, // 8 bytes
+
+    // flags (2 bytes)
+    has_zero: bool,     // 1 byte
+    has_negative: bool, // 1 byte
+
+    // Padding to reach 64 bytes for cache alignment
+    _padding: [u8; 22], // 22 bytes padding
 }
 
 impl OnlineStats {
@@ -197,6 +209,8 @@ impl Commute for OnlineStats {
 
         self.harmonic_sum += v.harmonic_sum;
         self.geometric_sum += v.geometric_sum;
+
+        self.has_zero |= v.has_zero;
         self.has_negative |= v.has_negative;
     }
 }
@@ -211,6 +225,7 @@ impl Default for OnlineStats {
             geometric_sum: 0.0,
             has_zero: false,
             has_negative: false,
+            _padding: [0; 22],
         }
     }
 }
