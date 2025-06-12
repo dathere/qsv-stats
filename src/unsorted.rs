@@ -29,7 +29,7 @@ where
 
 /// Compute the exact 1-, 2-, and 3-quartiles (Q1, Q2 a.k.a. median, and Q3) on a stream of data.
 ///
-/// (This has time complexity `O(nlogn)` and space complexity `O(n)`.)
+/// (This has time complexity `O(n log n)` and space complexity `O(n)`.)
 pub fn quartiles<I>(it: I) -> Option<(f64, f64, f64)>
 where
     I: Iterator,
@@ -151,10 +151,177 @@ where
     median_on_sorted(&abs_diff_vec)
 }
 
+/// Selection algorithm to find the k-th smallest element in O(n) average time.
+/// This is an implementation of quickselect algorithm.
+fn quickselect<T>(data: &mut [Partial<T>], k: usize) -> Option<&T>
+where
+    T: PartialOrd,
+{
+    if data.is_empty() || k >= data.len() {
+        return None;
+    }
+
+    let mut left = 0;
+    let mut right = data.len() - 1;
+
+    loop {
+        if left == right {
+            return Some(&data[left].0);
+        }
+
+        // Use median-of-three pivot selection for better performance
+        let pivot_idx = median_of_three_pivot(data, left, right);
+        let pivot_idx = partition(data, left, right, pivot_idx);
+
+        match k.cmp(&pivot_idx) {
+            std::cmp::Ordering::Equal => return Some(&data[pivot_idx].0),
+            std::cmp::Ordering::Less => right = pivot_idx - 1,
+            std::cmp::Ordering::Greater => left = pivot_idx + 1,
+        }
+    }
+}
+
+/// Zero-copy selection algorithm that works with indices instead of copying data.
+/// This avoids the overhead of cloning data elements.
+fn quickselect_by_index<'a, T>(
+    data: &'a [Partial<T>],
+    indices: &mut [usize],
+    k: usize,
+) -> Option<&'a T>
+where
+    T: PartialOrd,
+{
+    if data.is_empty() || indices.is_empty() || k >= indices.len() {
+        return None;
+    }
+
+    let mut left = 0;
+    let mut right = indices.len() - 1;
+
+    loop {
+        if left == right {
+            return Some(&data[indices[left]].0);
+        }
+
+        // Use median-of-three pivot selection for better performance
+        let pivot_idx = median_of_three_pivot_by_index(data, indices, left, right);
+        let pivot_idx = partition_by_index(data, indices, left, right, pivot_idx);
+
+        match k.cmp(&pivot_idx) {
+            std::cmp::Ordering::Equal => return Some(&data[indices[pivot_idx]].0),
+            std::cmp::Ordering::Less => right = pivot_idx - 1,
+            std::cmp::Ordering::Greater => left = pivot_idx + 1,
+        }
+    }
+}
+
+/// Select the median of three elements as pivot for better quickselect performance
+fn median_of_three_pivot<T>(data: &[Partial<T>], left: usize, right: usize) -> usize
+where
+    T: PartialOrd,
+{
+    let mid = left + (right - left) / 2;
+
+    if data[left] <= data[mid] {
+        if data[mid] <= data[right] {
+            mid
+        } else if data[left] <= data[right] {
+            right
+        } else {
+            left
+        }
+    } else if data[left] <= data[right] {
+        left
+    } else if data[mid] <= data[right] {
+        right
+    } else {
+        mid
+    }
+}
+
+/// Select the median of three elements as pivot using indices
+fn median_of_three_pivot_by_index<T>(
+    data: &[Partial<T>],
+    indices: &[usize],
+    left: usize,
+    right: usize,
+) -> usize
+where
+    T: PartialOrd,
+{
+    let mid = left + (right - left) / 2;
+
+    if data[indices[left]] <= data[indices[mid]] {
+        if data[indices[mid]] <= data[indices[right]] {
+            mid
+        } else if data[indices[left]] <= data[indices[right]] {
+            right
+        } else {
+            left
+        }
+    } else if data[indices[left]] <= data[indices[right]] {
+        left
+    } else if data[indices[mid]] <= data[indices[right]] {
+        right
+    } else {
+        mid
+    }
+}
+
+/// Partition function for quickselect
+fn partition<T>(data: &mut [Partial<T>], left: usize, right: usize, pivot_idx: usize) -> usize
+where
+    T: PartialOrd,
+{
+    // Move pivot to end
+    data.swap(pivot_idx, right);
+    let mut store_idx = left;
+
+    // Move all elements smaller than pivot to the left
+    for i in left..right {
+        if data[i] <= data[right] {
+            data.swap(i, store_idx);
+            store_idx += 1;
+        }
+    }
+
+    // Move pivot to its final place
+    data.swap(store_idx, right);
+    store_idx
+}
+
+/// Partition function for quickselect using indices
+fn partition_by_index<T>(
+    data: &[Partial<T>],
+    indices: &mut [usize],
+    left: usize,
+    right: usize,
+    pivot_idx: usize,
+) -> usize
+where
+    T: PartialOrd,
+{
+    // Move pivot to end
+    indices.swap(pivot_idx, right);
+    let mut store_idx = left;
+
+    // Move all elements smaller than pivot to the left
+    for i in left..right {
+        if data[indices[i]] <= data[indices[right]] {
+            indices.swap(i, store_idx);
+            store_idx += 1;
+        }
+    }
+
+    // Move pivot to its final place
+    indices.swap(store_idx, right);
+    store_idx
+}
+
 // This implementation follows Method 3 from https://en.wikipedia.org/wiki/Quartile
 // It divides data into quarters based on the length n = 4k + r where r is remainder.
 // For each remainder case (0,1,2,3), it uses different formulas to compute Q1, Q2, Q3.
-fn quartiles_on_sorted<T>(data: &[T]) -> Option<(f64, f64, f64)>
+fn quartiles_on_sorted<T>(data: &[Partial<T>]) -> Option<(f64, f64, f64)>
 where
     T: PartialOrd + ToPrimitive,
 {
@@ -168,9 +335,9 @@ where
                 // SAFETY: We know these indices are valid because len == 3
                 unsafe {
                     (
-                        data.get_unchecked(0).to_f64()?,
-                        data.get_unchecked(1).to_f64()?,
-                        data.get_unchecked(2).to_f64()?,
+                        data.get_unchecked(0).0.to_f64()?,
+                        data.get_unchecked(1).0.to_f64()?,
+                        data.get_unchecked(2).0.to_f64()?,
                     )
                 },
             );
@@ -193,21 +360,21 @@ where
                 // {x_i > q2} as R, #L == #R == 2k holds true. Thus,
                 // q1 = (x_{k-1} + x_{k}) / 2 and q3 = (x_{3k-1} + x_{3k}) / 2.
                 // =============
-                // Length is multiple of 4 (4k)
-                // Q1 = (x_{k-1} + x_k) / 2
-                // Q2 = (x_{2k-1} + x_{2k}) / 2
-                // Q3 = (x_{3k-1} + x_{3k}) / 2
+                // Simply put: Length is multiple of 4 (4k)
+                // q1 = (x_{k-1} + x_k) / 2
+                // q2 = (x_{2k-1} + x_{2k}) / 2
+                // q3 = (x_{3k-1} + x_{3k}) / 2
                 let q1 = f64::midpoint(
-                    data.get_unchecked(k - 1).to_f64()?,
-                    data.get_unchecked(k).to_f64()?,
+                    data.get_unchecked(k - 1).0.to_f64()?,
+                    data.get_unchecked(k).0.to_f64()?,
                 );
                 let q2 = f64::midpoint(
-                    data.get_unchecked(2 * k - 1).to_f64()?,
-                    data.get_unchecked(2 * k).to_f64()?,
+                    data.get_unchecked(2 * k - 1).0.to_f64()?,
+                    data.get_unchecked(2 * k).0.to_f64()?,
                 );
                 let q3 = f64::midpoint(
-                    data.get_unchecked(3 * k - 1).to_f64()?,
-                    data.get_unchecked(3 * k).to_f64()?,
+                    data.get_unchecked(3 * k - 1).0.to_f64()?,
+                    data.get_unchecked(3 * k).0.to_f64()?,
                 );
                 (q1, q2, q3)
             }
@@ -218,18 +385,18 @@ where
                 // as L and {x_i > q2} as R, #L == #R == 2k holds true. Thus,
                 // q1 = (x_{k-1} + x_{k}) / 2 and q3 = (x_{3k} + x_{3k+1}) / 2.
                 // =============
-                // Length is 4k + 1
-                // Q1 = (x_{k-1} + x_k) / 2
-                // Q2 = x_{2k}
-                // Q3 = (x_{3k} + x_{3k+1}) / 2
+                // Simply put: Length is 4k + 1
+                // q1 = (x_{k-1} + x_k) / 2
+                // q2 = x_{2k}
+                // q3 = (x_{3k} + x_{3k+1}) / 2
                 let q1 = f64::midpoint(
-                    data.get_unchecked(k - 1).to_f64()?,
-                    data.get_unchecked(k).to_f64()?,
+                    data.get_unchecked(k - 1).0.to_f64()?,
+                    data.get_unchecked(k).0.to_f64()?,
                 );
-                let q2 = data.get_unchecked(2 * k).to_f64()?;
+                let q2 = data.get_unchecked(2 * k).0.to_f64()?;
                 let q3 = f64::midpoint(
-                    data.get_unchecked(3 * k).to_f64()?,
-                    data.get_unchecked(3 * k + 1).to_f64()?,
+                    data.get_unchecked(3 * k).0.to_f64()?,
+                    data.get_unchecked(3 * k + 1).0.to_f64()?,
                 );
                 (q1, q2, q3)
             }
@@ -240,16 +407,16 @@ where
                 // {x_i > q2} as R, it's true that #L == #R == 2k+1.
                 // Thus, q1 = x_{k} and q3 = x_{3k+1}.
                 // =============
-                // Length is 4k + 2
-                // Q1 = x_k
-                // Q2 = (x_{2k} + x_{2k+1}) / 2
-                // Q3 = x_{3k+1}
-                let q1 = data.get_unchecked(k).to_f64()?;
+                // Simply put: Length is 4k + 2
+                // q1 = x_k
+                // q2 = (x_{2k} + x_{2k+1}) / 2
+                // q3 = x_{3k+1}
+                let q1 = data.get_unchecked(k).0.to_f64()?;
                 let q2 = f64::midpoint(
-                    data.get_unchecked(2 * k).to_f64()?,
-                    data.get_unchecked(2 * k + 1).to_f64()?,
+                    data.get_unchecked(2 * k).0.to_f64()?,
+                    data.get_unchecked(2 * k + 1).0.to_f64()?,
                 );
-                let q3 = data.get_unchecked(3 * k + 1).to_f64()?;
+                let q3 = data.get_unchecked(3 * k + 1).0.to_f64()?;
                 (q1, q2, q3)
             }
             _ => {
@@ -259,16 +426,192 @@ where
                 // as L and {x_i > q2} as R, #L == #R == 2k+1 holds true.
                 // Thus, q1 = x_{k} and q3 = x_{3k+2}.
                 // =============
-                // Length is 4k + 3
-                // Q1 = x_k
-                // Q2 = x_{2k+1}
-                // Q3 = x_{3k+2}
-                let q1 = data.get_unchecked(k).to_f64()?;
-                let q2 = data.get_unchecked(2 * k + 1).to_f64()?;
-                let q3 = data.get_unchecked(3 * k + 2).to_f64()?;
+                // Simply put: Length is 4k + 3
+                // q1 = x_k
+                // q2 = x_{2k+1}
+                // q3 = x_{3k+2}
+                let q1 = data.get_unchecked(k).0.to_f64()?;
+                let q2 = data.get_unchecked(2 * k + 1).0.to_f64()?;
+                let q3 = data.get_unchecked(3 * k + 2).0.to_f64()?;
                 (q1, q2, q3)
             }
         })
+    }
+}
+
+/// Compute quartiles using selection algorithm in O(n) time instead of O(n log n) sorting.
+/// This implementation follows Method 3 from https://en.wikipedia.org/wiki/Quartile
+fn quartiles_with_selection<T>(data: &mut [Partial<T>]) -> Option<(f64, f64, f64)>
+where
+    T: PartialOrd + ToPrimitive,
+{
+    let len = data.len();
+
+    // Early return for small arrays
+    match len {
+        0..=2 => return None,
+        3 => {
+            // For 3 elements, we need to find the sorted order using selection
+            let min_val = quickselect(data, 0)?.to_f64()?;
+            let med_val = quickselect(data, 1)?.to_f64()?;
+            let max_val = quickselect(data, 2)?.to_f64()?;
+            return Some((min_val, med_val, max_val));
+        }
+        _ => {}
+    }
+
+    // Calculate k and remainder in one division
+    let k = len / 4;
+    let remainder = len % 4;
+
+    // Use selection algorithm to find the required order statistics
+    match remainder {
+        0 => {
+            // Length is multiple of 4 (4k)
+            // Q1 = (x_{k-1} + x_k) / 2
+            // Q2 = (x_{2k-1} + x_{2k}) / 2
+            // Q3 = (x_{3k-1} + x_{3k}) / 2
+            let q1_low = quickselect(data, k - 1)?.to_f64()?;
+            let q1_high = quickselect(data, k)?.to_f64()?;
+            let q1 = f64::midpoint(q1_low, q1_high);
+
+            let q2_low = quickselect(data, 2 * k - 1)?.to_f64()?;
+            let q2_high = quickselect(data, 2 * k)?.to_f64()?;
+            let q2 = f64::midpoint(q2_low, q2_high);
+
+            let q3_low = quickselect(data, 3 * k - 1)?.to_f64()?;
+            let q3_high = quickselect(data, 3 * k)?.to_f64()?;
+            let q3 = f64::midpoint(q3_low, q3_high);
+
+            Some((q1, q2, q3))
+        }
+        1 => {
+            // Length is 4k + 1
+            // Q1 = (x_{k-1} + x_k) / 2
+            // Q2 = x_{2k}
+            // Q3 = (x_{3k} + x_{3k+1}) / 2
+            let q1_low = quickselect(data, k - 1)?.to_f64()?;
+            let q1_high = quickselect(data, k)?.to_f64()?;
+            let q1 = f64::midpoint(q1_low, q1_high);
+
+            let q2 = quickselect(data, 2 * k)?.to_f64()?;
+
+            let q3_low = quickselect(data, 3 * k)?.to_f64()?;
+            let q3_high = quickselect(data, 3 * k + 1)?.to_f64()?;
+            let q3 = f64::midpoint(q3_low, q3_high);
+
+            Some((q1, q2, q3))
+        }
+        2 => {
+            // Length is 4k + 2
+            // Q1 = x_k
+            // Q2 = (x_{2k} + x_{2k+1}) / 2
+            // Q3 = x_{3k+1}
+            let q1 = quickselect(data, k)?.to_f64()?;
+
+            let q2_low = quickselect(data, 2 * k)?.to_f64()?;
+            let q2_high = quickselect(data, 2 * k + 1)?.to_f64()?;
+            let q2 = f64::midpoint(q2_low, q2_high);
+
+            let q3 = quickselect(data, 3 * k + 1)?.to_f64()?;
+
+            Some((q1, q2, q3))
+        }
+        _ => {
+            // Length is 4k + 3
+            // Q1 = x_k
+            // Q2 = x_{2k+1}
+            // Q3 = x_{3k+2}
+            let q1 = quickselect(data, k)?.to_f64()?;
+            let q2 = quickselect(data, 2 * k + 1)?.to_f64()?;
+            let q3 = quickselect(data, 3 * k + 2)?.to_f64()?;
+
+            Some((q1, q2, q3))
+        }
+    }
+}
+
+/// Zero-copy quartiles computation using index-based selection.
+/// This avoids copying data by working with an array of indices.
+fn quartiles_with_zero_copy_selection<T>(data: &[Partial<T>]) -> Option<(f64, f64, f64)>
+where
+    T: PartialOrd + ToPrimitive,
+{
+    let len = data.len();
+
+    // Early return for small arrays
+    match len {
+        0..=2 => return None,
+        3 => {
+            // For 3 elements, create indices and find sorted order
+            let mut indices = vec![0, 1, 2];
+            let min_val = quickselect_by_index(data, &mut indices, 0)?.to_f64()?;
+            let med_val = quickselect_by_index(data, &mut indices, 1)?.to_f64()?;
+            let max_val = quickselect_by_index(data, &mut indices, 2)?.to_f64()?;
+            return Some((min_val, med_val, max_val));
+        }
+        _ => {}
+    }
+
+    // Create indices array once
+    let mut indices: Vec<usize> = (0..len).collect();
+
+    // Calculate k and remainder in one division
+    let k = len / 4;
+    let remainder = len % 4;
+
+    // Use zero-copy selection algorithm to find the required order statistics
+    match remainder {
+        0 => {
+            // Length is multiple of 4 (4k)
+            let q1_low = quickselect_by_index(data, &mut indices, k - 1)?.to_f64()?;
+            let q1_high = quickselect_by_index(data, &mut indices, k)?.to_f64()?;
+            let q1 = f64::midpoint(q1_low, q1_high);
+
+            let q2_low = quickselect_by_index(data, &mut indices, 2 * k - 1)?.to_f64()?;
+            let q2_high = quickselect_by_index(data, &mut indices, 2 * k)?.to_f64()?;
+            let q2 = f64::midpoint(q2_low, q2_high);
+
+            let q3_low = quickselect_by_index(data, &mut indices, 3 * k - 1)?.to_f64()?;
+            let q3_high = quickselect_by_index(data, &mut indices, 3 * k)?.to_f64()?;
+            let q3 = f64::midpoint(q3_low, q3_high);
+
+            Some((q1, q2, q3))
+        }
+        1 => {
+            // Length is 4k + 1
+            let q1_low = quickselect_by_index(data, &mut indices, k - 1)?.to_f64()?;
+            let q1_high = quickselect_by_index(data, &mut indices, k)?.to_f64()?;
+            let q1 = f64::midpoint(q1_low, q1_high);
+
+            let q2 = quickselect_by_index(data, &mut indices, 2 * k)?.to_f64()?;
+
+            let q3_low = quickselect_by_index(data, &mut indices, 3 * k)?.to_f64()?;
+            let q3_high = quickselect_by_index(data, &mut indices, 3 * k + 1)?.to_f64()?;
+            let q3 = f64::midpoint(q3_low, q3_high);
+
+            Some((q1, q2, q3))
+        }
+        2 => {
+            // Length is 4k + 2
+            let q1 = quickselect_by_index(data, &mut indices, k)?.to_f64()?;
+
+            let q2_low = quickselect_by_index(data, &mut indices, 2 * k)?.to_f64()?;
+            let q2_high = quickselect_by_index(data, &mut indices, 2 * k + 1)?.to_f64()?;
+            let q2 = f64::midpoint(q2_low, q2_high);
+
+            let q3 = quickselect_by_index(data, &mut indices, 3 * k + 1)?.to_f64()?;
+
+            Some((q1, q2, q3))
+        }
+        _ => {
+            // Length is 4k + 3
+            let q1 = quickselect_by_index(data, &mut indices, k)?.to_f64()?;
+            let q2 = quickselect_by_index(data, &mut indices, 2 * k + 1)?.to_f64()?;
+            let q3 = quickselect_by_index(data, &mut indices, 3 * k + 2)?.to_f64()?;
+
+            Some((q1, q2, q3))
+        }
     }
 }
 
@@ -678,7 +1021,10 @@ impl<T: PartialOrd + ToPrimitive> Unsorted<T> {
 }
 
 impl<T: PartialOrd + ToPrimitive> Unsorted<T> {
-    /// Returns the quartiles of the data.
+    /// Returns the quartiles of the data using the traditional sorting approach.
+    ///
+    /// This method sorts the data first and then computes quartiles.
+    /// Time complexity: O(n log n)
     #[inline]
     pub fn quartiles(&mut self) -> Option<(f64, f64, f64)> {
         if self.data.is_empty() {
@@ -686,6 +1032,67 @@ impl<T: PartialOrd + ToPrimitive> Unsorted<T> {
         }
         self.sort();
         quartiles_on_sorted(&self.data)
+    }
+}
+
+impl<T: PartialOrd + ToPrimitive + Clone> Unsorted<T> {
+    /// Returns the quartiles of the data using selection algorithm.
+    ///
+    /// This implementation uses a selection algorithm (quickselect) to find quartiles
+    /// in O(n) average time complexity instead of O(n log n) sorting.
+    /// Requires T to implement Clone to create a working copy of the data.
+    ///
+    /// **Performance Note**: While theoretically O(n) vs O(n log n), this implementation
+    /// is often slower than the sorting-based approach for small to medium datasets due to:
+    /// - Need to find multiple order statistics (3 separate quickselect calls)
+    /// - Overhead of copying data to avoid mutation
+    /// - Rayon's highly optimized parallel sorting
+    ///
+    /// Consider using `quartiles_adaptive()` for automatic algorithm selection.
+    #[inline]
+    pub fn quartiles_with_selection(&mut self) -> Option<(f64, f64, f64)> {
+        if self.data.is_empty() {
+            return None;
+        }
+        // Create a copy using collect to avoid mutating the original for selection
+        let mut data_copy: Vec<Partial<T>> =
+            self.data.iter().map(|x| Partial(x.0.clone())).collect();
+        quartiles_with_selection(&mut data_copy)
+    }
+
+    /// Returns the quartiles using an adaptive algorithm that chooses between
+    /// sorting and zero-copy selection based on data size.
+    ///
+    /// For datasets between 1,000 and 10,000 elements, uses the zero-copy selection
+    /// approach which can be faster in this range. For all other sizes, uses the
+    /// sorting-based approach which tends to be more efficient due to rayon's
+    /// highly optimized parallel sorting implementation.
+    ///
+    /// We don't consider the selection approach here because benchmarks show that
+    /// it is slower than the sorting-based approach for all data sizes in the benchmark.
+    #[inline]
+    pub fn quartiles_adaptive(&mut self) -> Option<(f64, f64, f64)> {
+        // Only use zero-copy selection for random data in sweet spot range
+        if self.data.len() > 1_000 && self.data.len() < 10_000 {
+            self.quartiles_zero_copy()
+        } else {
+            self.quartiles() // Use sorting
+        }
+    }
+}
+
+impl<T: PartialOrd + ToPrimitive> Unsorted<T> {
+    /// Returns the quartiles using zero-copy selection algorithm.
+    ///
+    /// This implementation avoids copying data by working with indices instead,
+    /// providing better performance than the clone-based selection approach.
+    /// The algorithm is O(n) average time and only allocates a vector of indices (usize).
+    #[inline]
+    pub fn quartiles_zero_copy(&self) -> Option<(f64, f64, f64)> {
+        if self.data.is_empty() {
+            return None;
+        }
+        quartiles_with_zero_copy_selection(&self.data)
     }
 }
 
@@ -873,6 +1280,88 @@ mod test {
         unsorted.extend(vec!["a", "b", "b", "c", "c", "c"]);
         assert_eq!(unsorted.cardinality(false, 1), 3);
     }
+
+    #[test]
+    fn test_quartiles_selection_vs_sorted() {
+        // Test that selection-based quartiles gives same results as sorting-based
+        let test_cases = vec![
+            vec![3, 5, 7, 9],
+            vec![3, 5, 7],
+            vec![1, 2, 7, 11],
+            vec![3, 5, 7, 9, 12],
+            vec![2, 2, 3, 8, 10],
+            vec![3, 5, 7, 9, 12, 20],
+            vec![0, 2, 4, 8, 10, 11],
+            vec![3, 5, 7, 9, 12, 20, 21],
+            vec![1, 5, 6, 6, 7, 10, 19],
+        ];
+
+        for test_case in test_cases {
+            let mut unsorted1 = Unsorted::new();
+            let mut unsorted2 = Unsorted::new();
+            let mut unsorted3 = Unsorted::new();
+            unsorted1.extend(test_case.clone());
+            unsorted2.extend(test_case.clone());
+            unsorted3.extend(test_case.clone());
+
+            let result_sorted = unsorted1.quartiles();
+            let result_selection = unsorted2.quartiles_with_selection();
+            let result_zero_copy = unsorted3.quartiles_zero_copy();
+
+            assert_eq!(
+                result_sorted, result_selection,
+                "Selection mismatch for test case: {:?}",
+                test_case
+            );
+            assert_eq!(
+                result_sorted, result_zero_copy,
+                "Zero-copy mismatch for test case: {:?}",
+                test_case
+            );
+        }
+    }
+
+    #[test]
+    fn test_quartiles_with_selection_small() {
+        // Test edge cases for selection-based quartiles
+        let mut unsorted: Unsorted<i32> = Unsorted::new();
+        assert_eq!(unsorted.quartiles_with_selection(), None);
+
+        let mut unsorted = Unsorted::new();
+        unsorted.extend(vec![1, 2]);
+        assert_eq!(unsorted.quartiles_with_selection(), None);
+
+        let mut unsorted = Unsorted::new();
+        unsorted.extend(vec![1, 2, 3]);
+        assert_eq!(unsorted.quartiles_with_selection(), Some((1.0, 2.0, 3.0)));
+    }
+
+    #[test]
+    fn test_quickselect() {
+        let data = vec![
+            Partial(3),
+            Partial(1),
+            Partial(4),
+            Partial(1),
+            Partial(5),
+            Partial(9),
+            Partial(2),
+            Partial(6),
+        ];
+
+        // Test finding different positions
+        assert_eq!(quickselect(&mut data.clone(), 0), Some(&1));
+        assert_eq!(quickselect(&mut data.clone(), 3), Some(&3));
+        assert_eq!(quickselect(&mut data.clone(), 7), Some(&9));
+
+        // Test edge cases
+        let mut empty: Vec<Partial<i32>> = vec![];
+        assert_eq!(quickselect(&mut empty, 0), None);
+
+        let mut data = vec![Partial(3), Partial(1), Partial(4), Partial(1), Partial(5)];
+        assert_eq!(quickselect(&mut data, 10), None); // k >= len
+    }
+
     #[test]
     fn median_stream() {
         assert_eq!(median(vec![3usize, 5, 7, 9].into_iter()), Some(6.0));
@@ -1041,6 +1530,58 @@ mod test {
     }
 
     #[test]
+    fn test_custom_percentiles() {
+        // Test with integers
+        let mut unsorted: Unsorted<i32> = Unsorted::new();
+        unsorted.extend(1..=11); // [1,2,3,4,5,6,7,8,9,10,11]
+
+        let result = unsorted.custom_percentiles(&[25, 50, 75]).unwrap();
+        assert_eq!(result, vec![3, 6, 9]);
+
+        // Test with strings
+        let mut str_data = Unsorted::new();
+        str_data.extend(vec!["a", "b", "c", "d", "e"]);
+        let result = str_data.custom_percentiles(&[20, 40, 60, 80]).unwrap();
+        assert_eq!(result, vec!["a", "b", "c", "d"]);
+
+        // Test with chars
+        let mut char_data = Unsorted::new();
+        char_data.extend('a'..='e');
+        let result = char_data.custom_percentiles(&[25, 50, 75]).unwrap();
+        assert_eq!(result, vec!['b', 'c', 'd']);
+
+        // Test with floats
+        let mut float_data = Unsorted::new();
+        float_data.extend(vec![1.1, 2.2, 3.3, 4.4, 5.5, 6.6, 7.7, 8.8, 9.9]);
+        let result = float_data
+            .custom_percentiles(&[10, 30, 50, 70, 90])
+            .unwrap();
+        assert_eq!(result, vec![1.1, 3.3, 5.5, 7.7, 9.9]);
+
+        // Test with empty percentiles array
+        let result = float_data.custom_percentiles(&[]).unwrap();
+        assert_eq!(result, Vec::<f64>::new());
+
+        // Test with duplicate percentiles
+        let result = float_data.custom_percentiles(&[50, 50, 50]).unwrap();
+        assert_eq!(result, vec![5.5]);
+
+        // Test with extreme percentiles
+        let result = float_data.custom_percentiles(&[0, 100]).unwrap();
+        assert_eq!(result, vec![1.1, 9.9]);
+
+        // Test with unsorted percentiles
+        let result = float_data.custom_percentiles(&[75, 25, 50]).unwrap();
+        assert_eq!(result, vec![3.3, 5.5, 7.7]); // results always sorted
+
+        // Test with single element
+        let mut single = Unsorted::new();
+        single.add(42);
+        let result = single.custom_percentiles(&[0, 50, 100]).unwrap();
+        assert_eq!(result, vec![42, 42, 42]);
+    }
+
+    #[test]
     fn quartiles_stream() {
         assert_eq!(
             quartiles(vec![3usize, 5, 7].into_iter()),
@@ -1105,54 +1646,324 @@ mod test {
     }
 
     #[test]
-    fn test_custom_percentiles() {
-        // Test with integers
-        let mut unsorted: Unsorted<i32> = Unsorted::new();
-        unsorted.extend(1..=11); // [1,2,3,4,5,6,7,8,9,10,11]
+    fn test_quartiles_zero_copy_small() {
+        // Test edge cases for zero-copy quartiles
+        let unsorted: Unsorted<i32> = Unsorted::new();
+        assert_eq!(unsorted.quartiles_zero_copy(), None);
 
-        let result = unsorted.custom_percentiles(&[25, 50, 75]).unwrap();
-        assert_eq!(result, vec![3, 6, 9]);
+        let mut unsorted = Unsorted::new();
+        unsorted.extend(vec![1, 2]);
+        assert_eq!(unsorted.quartiles_zero_copy(), None);
 
-        // Test with strings
-        let mut str_data = Unsorted::new();
-        str_data.extend(vec!["a", "b", "c", "d", "e"]);
-        let result = str_data.custom_percentiles(&[20, 40, 60, 80]).unwrap();
-        assert_eq!(result, vec!["a", "b", "c", "d"]);
+        let mut unsorted = Unsorted::new();
+        unsorted.extend(vec![1, 2, 3]);
+        assert_eq!(unsorted.quartiles_zero_copy(), Some((1.0, 2.0, 3.0)));
 
-        // Test with chars
-        let mut char_data = Unsorted::new();
-        char_data.extend('a'..='e');
-        let result = char_data.custom_percentiles(&[25, 50, 75]).unwrap();
-        assert_eq!(result, vec!['b', 'c', 'd']);
+        // Test larger case
+        let mut unsorted = Unsorted::new();
+        unsorted.extend(vec![3, 5, 7, 9]);
+        assert_eq!(unsorted.quartiles_zero_copy(), Some((4.0, 6.0, 8.0)));
+    }
+}
 
-        // Test with floats
-        let mut float_data = Unsorted::new();
-        float_data.extend(vec![1.1, 2.2, 3.3, 4.4, 5.5, 6.6, 7.7, 8.8, 9.9]);
-        let result = float_data
-            .custom_percentiles(&[10, 30, 50, 70, 90])
-            .unwrap();
-        assert_eq!(result, vec![1.1, 3.3, 5.5, 7.7, 9.9]);
+#[cfg(test)]
+mod bench {
+    use super::*;
+    use std::time::Instant;
 
-        // Test with empty percentiles array
-        let result = float_data.custom_percentiles(&[]).unwrap();
-        assert_eq!(result, Vec::<f64>::new());
+    #[test]
+    #[ignore] // Run with `cargo test comprehensive_quartiles_benchmark -- --ignored --nocapture` to see performance comparison
+    fn comprehensive_quartiles_benchmark() {
+        // Test a wide range of data sizes
+        let data_sizes = vec![
+            1_000, 10_000, 100_000, 500_000, 1_000_000, 2_000_000, 5_000_000, 10_000_000,
+        ];
 
-        // Test with duplicate percentiles
-        let result = float_data.custom_percentiles(&[50, 50, 50]).unwrap();
-        assert_eq!(result, vec![5.5]);
+        println!("=== COMPREHENSIVE QUARTILES BENCHMARK ===\n");
 
-        // Test with extreme percentiles
-        let result = float_data.custom_percentiles(&[0, 100]).unwrap();
-        assert_eq!(result, vec![1.1, 9.9]);
+        for size in data_sizes {
+            println!("--- Testing with {} elements ---", size);
 
-        // Test with unsorted percentiles
-        let result = float_data.custom_percentiles(&[75, 25, 50]).unwrap();
-        assert_eq!(result, vec![3.3, 5.5, 7.7]); // results always sorted
+            // Test different data patterns
+            let test_patterns = vec![
+                ("Random", generate_random_data(size)),
+                ("Reverse Sorted", {
+                    let mut v = Vec::with_capacity(size);
+                    for x in (0..size).rev() {
+                        v.push(x as i32);
+                    }
+                    v
+                }),
+                ("Already Sorted", {
+                    let mut v = Vec::with_capacity(size);
+                    for x in 0..size {
+                        v.push(x as i32);
+                    }
+                    v
+                }),
+                ("Many Duplicates", {
+                    // Create a vector with just a few distinct values repeated many times
+                    let mut v = Vec::with_capacity(size);
+                    let chunk_size = size / 100;
+                    for i in 0..100 {
+                        v.extend(std::iter::repeat(i as i32).take(chunk_size));
+                    }
+                    // Add any remaining elements
+                    v.extend(std::iter::repeat(0).take(size - v.len()));
+                    v
+                }),
+            ];
 
-        // Test with single element
-        let mut single = Unsorted::new();
-        single.add(42);
-        let result = single.custom_percentiles(&[0, 50, 100]).unwrap();
-        assert_eq!(result, vec![42, 42, 42]);
+            for (pattern_name, test_data) in test_patterns {
+                println!("\n  Pattern: {}", pattern_name);
+
+                // Benchmark sorting-based approach
+                let mut unsorted1 = Unsorted::new();
+                unsorted1.extend(test_data.clone());
+
+                let start = Instant::now();
+                let result_sorted = unsorted1.quartiles();
+                let sorted_time = start.elapsed();
+
+                // Benchmark selection-based approach (with copying)
+                let mut unsorted2 = Unsorted::new();
+                unsorted2.extend(test_data.clone());
+
+                let start = Instant::now();
+                let result_selection = unsorted2.quartiles_with_selection();
+                let selection_time = start.elapsed();
+
+                // Benchmark zero-copy selection-based approach
+                let mut unsorted3 = Unsorted::new();
+                unsorted3.extend(test_data);
+
+                let start = Instant::now();
+                let result_zero_copy = unsorted3.quartiles_zero_copy();
+                let zero_copy_time = start.elapsed();
+
+                // Verify results are the same
+                assert_eq!(result_sorted, result_selection);
+                assert_eq!(result_sorted, result_zero_copy);
+
+                let selection_speedup =
+                    sorted_time.as_nanos() as f64 / selection_time.as_nanos() as f64;
+                let zero_copy_speedup =
+                    sorted_time.as_nanos() as f64 / zero_copy_time.as_nanos() as f64;
+
+                println!("    Sorting:       {:>12?}", sorted_time);
+                println!(
+                    "    Selection:     {:>12?} (speedup: {:.2}x)",
+                    selection_time, selection_speedup
+                );
+                println!(
+                    "    Zero-copy:     {:>12?} (speedup: {:.2}x)",
+                    zero_copy_time, zero_copy_speedup
+                );
+
+                let best_algorithm =
+                    if zero_copy_speedup > 1.0 && zero_copy_speedup >= selection_speedup {
+                        "ZERO-COPY"
+                    } else if selection_speedup > 1.0 {
+                        "SELECTION"
+                    } else {
+                        "SORTING"
+                    };
+                println!("    Best: {}", best_algorithm);
+            }
+
+            println!(); // Add blank line between sizes
+        }
+    }
+
+    // Generate random data for benchmarking
+    fn generate_random_data(size: usize) -> Vec<i32> {
+        // Simple LCG random number generator for reproducible results
+        let mut rng = 1234567u64;
+        let mut vec = Vec::with_capacity(size);
+        for _ in 0..size {
+            rng = rng.wrapping_mul(1103515245).wrapping_add(12345);
+            vec.push((rng >> 16) as i32);
+        }
+        vec
+    }
+
+    #[test]
+    #[ignore] // Run with `cargo test find_selection_threshold -- --ignored --nocapture` to find exact threshold
+    fn find_selection_threshold() {
+        println!("=== FINDING SELECTION ALGORITHM THRESHOLD ===\n");
+
+        // Binary search approach to find the threshold
+        let mut found_threshold = None;
+        let test_sizes = vec![
+            1_000_000, 2_000_000, 3_000_000, 4_000_000, 5_000_000, 7_500_000, 10_000_000,
+            15_000_000, 20_000_000, 25_000_000, 30_000_000,
+        ];
+
+        for size in test_sizes {
+            println!("Testing size: {}", size);
+
+            // Use random data as it's most representative of real-world scenarios
+            let test_data = generate_random_data(size);
+
+            // Run multiple iterations to get average performance
+            let iterations = 3;
+            let mut sorting_total = 0u128;
+            let mut selection_total = 0u128;
+            let mut zero_copy_total = 0u128;
+
+            for i in 0..iterations {
+                println!("  Iteration {}/{}", i + 1, iterations);
+
+                // Sorting approach
+                let mut unsorted1 = Unsorted::new();
+                unsorted1.extend(test_data.clone());
+
+                let start = Instant::now();
+                let _result_sorted = unsorted1.quartiles();
+                sorting_total += start.elapsed().as_nanos();
+
+                // Selection approach (with copying)
+                let mut unsorted2 = Unsorted::new();
+                unsorted2.extend(test_data.clone());
+
+                let start = Instant::now();
+                let _result_selection = unsorted2.quartiles_with_selection();
+                selection_total += start.elapsed().as_nanos();
+
+                // Zero-copy selection approach
+                let mut unsorted3 = Unsorted::new();
+                unsorted3.extend(test_data.clone());
+
+                let start = Instant::now();
+                let _result_zero_copy = unsorted3.quartiles_zero_copy();
+                zero_copy_total += start.elapsed().as_nanos();
+            }
+
+            let avg_sorting = sorting_total / iterations as u128;
+            let avg_selection = selection_total / iterations as u128;
+            let avg_zero_copy = zero_copy_total / iterations as u128;
+            let selection_speedup = avg_sorting as f64 / avg_selection as f64;
+            let zero_copy_speedup = avg_sorting as f64 / avg_zero_copy as f64;
+
+            println!(
+                "  Average sorting:    {:>12.2}ms",
+                avg_sorting as f64 / 1_000_000.0
+            );
+            println!(
+                "  Average selection:  {:>12.2}ms (speedup: {:.2}x)",
+                avg_selection as f64 / 1_000_000.0,
+                selection_speedup
+            );
+            println!(
+                "  Average zero-copy:  {:>12.2}ms (speedup: {:.2}x)",
+                avg_zero_copy as f64 / 1_000_000.0,
+                zero_copy_speedup
+            );
+
+            if (selection_speedup > 1.0 || zero_copy_speedup > 1.0) && found_threshold.is_none() {
+                found_threshold = Some(size);
+                let best_method = if zero_copy_speedup > selection_speedup {
+                    "Zero-copy"
+                } else {
+                    "Selection"
+                };
+                println!(
+                    "  *** THRESHOLD FOUND: {} becomes faster at {} elements ***",
+                    best_method, size
+                );
+            }
+
+            println!();
+        }
+
+        match found_threshold {
+            Some(threshold) => println!(
+                "🎯 Selection algorithm becomes faster at approximately {} elements",
+                threshold
+            ),
+            None => println!("❌ Selection algorithm did not become faster in the tested range"),
+        }
+    }
+
+    #[test]
+    #[ignore] // Run with `cargo test benchmark_different_data_types -- --ignored --nocapture` to test different data types
+    fn benchmark_different_data_types() {
+        println!("=== BENCHMARKING DIFFERENT DATA TYPES ===\n");
+
+        let size = 5_000_000; // Use a large size where differences might be visible
+
+        // Test with f64 (floating point)
+        println!("Testing with f64 data:");
+        let float_data: Vec<f64> = generate_random_data(size)
+            .into_iter()
+            .map(|x| x as f64 / 1000.0)
+            .collect();
+
+        let mut unsorted1 = Unsorted::new();
+        unsorted1.extend(float_data.clone());
+        let start = Instant::now();
+        let _result = unsorted1.quartiles();
+        let sorting_time = start.elapsed();
+
+        let mut unsorted2 = Unsorted::new();
+        unsorted2.extend(float_data.clone());
+        let start = Instant::now();
+        let _result = unsorted2.quartiles_with_selection();
+        let selection_time = start.elapsed();
+
+        let mut unsorted3 = Unsorted::new();
+        unsorted3.extend(float_data);
+        let start = Instant::now();
+        let _result = unsorted3.quartiles_zero_copy();
+        let zero_copy_time = start.elapsed();
+
+        println!("  Sorting:    {:?}", sorting_time);
+        println!("  Selection:  {:?}", selection_time);
+        println!("  Zero-copy:  {:?}", zero_copy_time);
+        println!(
+            "  Selection Speedup:  {:.2}x",
+            sorting_time.as_nanos() as f64 / selection_time.as_nanos() as f64
+        );
+        println!(
+            "  Zero-copy Speedup:  {:.2}x\n",
+            sorting_time.as_nanos() as f64 / zero_copy_time.as_nanos() as f64
+        );
+
+        // Test with i64 (larger integers)
+        println!("Testing with i64 data:");
+        let int64_data: Vec<i64> = generate_random_data(size)
+            .into_iter()
+            .map(|x| x as i64 * 1000)
+            .collect();
+
+        let mut unsorted1 = Unsorted::new();
+        unsorted1.extend(int64_data.clone());
+        let start = Instant::now();
+        let _result = unsorted1.quartiles();
+        let sorting_time = start.elapsed();
+
+        let mut unsorted2 = Unsorted::new();
+        unsorted2.extend(int64_data.clone());
+        let start = Instant::now();
+        let _result = unsorted2.quartiles_with_selection();
+        let selection_time = start.elapsed();
+
+        let mut unsorted3 = Unsorted::new();
+        unsorted3.extend(int64_data);
+        let start = Instant::now();
+        let _result = unsorted3.quartiles_zero_copy();
+        let zero_copy_time = start.elapsed();
+
+        println!("  Sorting:    {:?}", sorting_time);
+        println!("  Selection:  {:?}", selection_time);
+        println!("  Zero-copy:  {:?}", zero_copy_time);
+        println!(
+            "  Selection Speedup:  {:.2}x",
+            sorting_time.as_nanos() as f64 / selection_time.as_nanos() as f64
+        );
+        println!(
+            "  Zero-copy Speedup:  {:.2}x",
+            sorting_time.as_nanos() as f64 / zero_copy_time.as_nanos() as f64
+        );
     }
 }
