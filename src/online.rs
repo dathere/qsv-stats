@@ -141,6 +141,7 @@ impl OnlineStats {
         self.size += 1;
         let delta = sample - self.mean;
         self.mean += delta * (1.0 / (self.size as f64));
+        // self.mean = delta.mul_add(1.0 / (self.size as f64), self.mean);
         self.q = delta.mul_add(sample - self.mean, self.q);
 
         // Early return for special cases to avoid unnecessary computations
@@ -156,9 +157,12 @@ impl OnlineStats {
         if self.has_negative || self.has_zero {
             return;
         }
-        // Only compute these if we have all positive numbers
-        self.harmonic_sum += 1.0 / sample;
-        self.geometric_sum += sample.ln();
+
+        // Only compute harmonic & geometric sums if we have all non-zero positive numbers
+        // use FMA. equivalent to: self.harmonic_sum += 1.0 / sample
+        self.harmonic_sum = (1.0 / sample).mul_add(1.0, self.harmonic_sum);
+        // use FMA. equivalent to: self.geometric_sum += ln(sample)
+        self.geometric_sum = sample.ln().mul_add(1.0, self.geometric_sum);
     }
 
     /// Add a new NULL value to the population.
