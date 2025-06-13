@@ -25,23 +25,17 @@ impl<T: Eq + Hash> Frequencies<T> {
         Default::default()
     }
 
-    /// Fast path for incrementing existing value
-    /// Returns true if the value existed and was incremented,
-    /// false if the value wasn't found
-    #[inline]
-    pub fn increment(&mut self, v: &T) -> bool {
-        self.data.get_mut(v).is_some_and(|count| {
-            *count += 1;
-            true
-        })
+    // Add constructor with configurable capacity
+    #[must_use]
+    pub fn with_capacity(capacity: usize) -> Self {
+        Frequencies {
+            data: HashMap::with_capacity(capacity),
+        }
     }
 
-    /// Optimized add that uses increment as a fast path
-    #[inline]
+    /// Add a value to the frequency table.
     pub fn add(&mut self, v: T) {
-        if !self.increment(&v) {
-            self.data.insert(v, 1);
-        }
+        *self.data.entry(v).or_insert(0) += 1;
     }
 
     /// Return the number of occurrences of `v` in the data.
