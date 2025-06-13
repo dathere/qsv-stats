@@ -1066,6 +1066,7 @@ impl<T: PartialOrd + ToPrimitive> Unsorted<T> {
     /// providing better performance than the clone-based selection approach.
     /// The algorithm is O(n) average time and only allocates a vector of indices (usize).
     #[inline]
+    #[must_use]
     pub fn quartiles_zero_copy(&self) -> Option<(f64, f64, f64)> {
         if self.data.is_empty() {
             return None;
