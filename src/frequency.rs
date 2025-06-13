@@ -159,7 +159,7 @@ impl<T: Eq + Hash> Frequencies<T> {
 
     /// Return an iterator over the unique values of the data.
     #[must_use]
-    pub fn unique_values(&self) -> UniqueValues<T> {
+    pub fn unique_values(&self) -> UniqueValues<'_, T> {
         UniqueValues {
             data_keys: self.data.keys(),
         }
