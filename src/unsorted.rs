@@ -792,7 +792,7 @@ impl<T: PartialOrd> Unsorted<T> {
 
     /// Add a new element to the set.
     #[allow(clippy::inline_always)]
-    #[inline]
+    #[inline(always)]
     pub fn add(&mut self, v: T) {
         self.sorted = false;
         self.data.push(Partial(v));
