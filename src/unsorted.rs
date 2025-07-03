@@ -118,7 +118,7 @@ where
         // Single element case - return that element converted to f64
         1 => data.first()?.to_f64()?,
         // Even length case - average the two middle elements
-        len if len % 2 == 0 => {
+        len if len.is_multiple_of(2) => {
             let idx = len / 2;
             // Safety: we know these indices are valid because we checked len is even and non-zero,
             // so idx-1 and idx are valid indices into data
