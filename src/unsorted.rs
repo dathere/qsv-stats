@@ -840,6 +840,7 @@ impl<T: PartialOrd> Unsorted<T> {
 
     /// Create with specific capacity
     #[inline]
+    #[must_use]
     pub fn with_capacity(capacity: usize) -> Self {
         Unsorted {
             sorted: true,
