@@ -440,7 +440,7 @@ where
 }
 
 /// Compute quartiles using selection algorithm in O(n) time instead of O(n log n) sorting.
-/// This implementation follows Method 3 from https://en.wikipedia.org/wiki/Quartile
+/// This implementation follows Method 3 from `<https://en.wikipedia.org/wiki/Quartile>`
 fn quartiles_with_selection<T>(data: &mut [Partial<T>]) -> Option<(f64, f64, f64)>
 where
     T: PartialOrd + ToPrimitive,
