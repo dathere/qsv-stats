@@ -689,6 +689,7 @@ where
 ///
 /// * `T`: The value type that implements `PartialOrd` + `Clone`
 /// * `I`: The iterator type
+#[inline]
 fn modes_and_antimodes_on_sorted<T, I>(
     mut it: I,
     size: usize,
@@ -703,17 +704,15 @@ where
     };
 
     // Estimate capacity using square root of size
-    #[allow(clippy::cast_sign_loss)]
-    let mut runs: Vec<(T, u32)> = Vec::with_capacity(
-        ((size as f64).sqrt() as usize).clamp(16, 1_000), // Min 16, max 1000
-    );
+    let mut runs: Vec<(T, u32)> =
+        Vec::with_capacity(((size as f64).sqrt() as usize).clamp(16, 1_000));
 
     let mut current_value = first;
     let mut current_count = 1;
     let mut highest_count = 1;
     let mut lowest_count = u32::MAX;
 
-    // Count consecutive runs
+    // Count consecutive runs - optimized to reduce allocations
     for x in it {
         if x == current_value {
             current_count += 1;
@@ -736,20 +735,29 @@ where
 
     // Special case: if all values appear exactly once
     if highest_count == 1 {
-        let mut antimodes = Vec::with_capacity(10.min(runs.len()));
+        let antimodes_count = runs.len().min(10);
         let total_count = runs.len();
-        for (val, _) in runs.into_iter().take(10) {
+        let mut antimodes = Vec::with_capacity(antimodes_count);
+        for (val, _) in runs.into_iter().take(antimodes_count) {
             antimodes.push(val);
         }
+        // For modes: empty, count 0, occurrences 0 (not 1, 1)
         return ((Vec::new(), 0, 0), (antimodes, total_count, 1));
     }
 
-    // Collect modes and antimodes in a single pass
-    let mut modes_result = Vec::with_capacity(10);
-    let mut antimodes_result = Vec::with_capacity(10);
+    // Estimate capacities based on the number of runs
+    // For modes: typically 1-3 modes, rarely more than 10% of runs
+    // For antimodes: we only collect up to 10, but need to count all
+    let estimated_modes = (runs.len() / 10).clamp(1, 10);
+    let estimated_antimodes = 10.min(runs.len());
+
+    let mut modes_result = Vec::with_capacity(estimated_modes);
+    let mut antimodes_result = Vec::with_capacity(estimated_antimodes);
     let mut mode_count = 0;
     let mut antimodes_count = 0;
+    let mut antimodes_collected = 0_u32;
 
+    // Count and collect modes and antimodes simultaneously
     for (val, count) in &runs {
         if *count == highest_count {
             modes_result.push(val.clone());
@@ -757,8 +765,9 @@ where
         }
         if *count == lowest_count {
             antimodes_count += 1;
-            if antimodes_result.len() < 10 {
+            if antimodes_collected < 10 {
                 antimodes_result.push(val.clone());
+                antimodes_collected += 1;
             }
         }
     }
