@@ -34,6 +34,7 @@ impl<T: Eq + Hash> Frequencies<T> {
     }
 
     /// Add a value to the frequency table.
+    #[inline]
     pub fn add(&mut self, v: T) {
         *self.data.entry(v).or_insert(0) += 1;
     }
