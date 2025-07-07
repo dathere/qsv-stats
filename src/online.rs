@@ -115,13 +115,13 @@ impl OnlineStats {
     pub fn geometric_mean(&self) -> f64 {
         if self.is_empty() {
             f64::NAN
-        } else if self.has_zero {
-            0.0
         } else if self.has_negative
             || self.geometric_sum.is_infinite()
             || self.geometric_sum.is_nan()
         {
             f64::NAN
+        } else if self.has_zero {
+            0.0
         } else {
             (self.geometric_sum / (self.size as f64)).exp()
         }
@@ -350,6 +350,21 @@ mod test {
         assert!(stats.geometric_mean().abs() < 1e-10);
 
         // Harmonic mean is undefined when any value is 0
+        assert!(stats.harmonic_mean().is_nan());
+    }
+
+    #[test]
+    fn test_means_with_zero_and_negative_values() {
+        let mut stats = OnlineStats::new();
+        stats.extend(vec![-10i32, -5, 0, 5, 10]);
+
+        // Arithmetic mean = (-10 + -5 + 0 + 5 + 10) / 5 = 0
+        assert!(stats.mean().abs() < 1e-10);
+
+        // Geometric mean is NaN due to negative values
+        assert!(stats.geometric_mean().is_nan());
+
+        // Harmonic mean is NaN due to zero value
         assert!(stats.harmonic_mean().is_nan());
     }
 
