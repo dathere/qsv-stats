@@ -140,9 +140,12 @@ impl OnlineStats {
         // See also: https://api.semanticscholar.org/CorpusID:120126049
         self.size += 1;
         let delta = sample - self.mean;
-        self.mean += delta * (1.0 / (self.size as f64));
-        // self.mean = delta.mul_add(1.0 / (self.size as f64), self.mean);
-        self.q = delta.mul_add(sample - self.mean, self.q);
+
+        // FMA: equivalent to: self.mean += delta * (1.0 / (self.size as f64));
+        self.mean = delta.mul_add(1.0 / (self.size as f64), self.mean);
+
+        // FMA: equivalent to: self.q += delta * (sample - self.mean);
+        self.q = delta.mul_add(sample - (*self).mean, (*self).q);
 
         // Early return for special cases to avoid unnecessary computations
         if sample <= 0.0 {
