@@ -113,9 +113,8 @@ impl OnlineStats {
     /// Return the current geometric mean.
     #[must_use]
     pub fn geometric_mean(&self) -> f64 {
-        if self.is_empty() {
-            f64::NAN
-        } else if self.has_negative
+        if self.is_empty()
+            || self.has_negative
             || self.geometric_sum.is_infinite()
             || self.geometric_sum.is_nan()
         {
