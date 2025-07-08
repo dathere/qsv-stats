@@ -144,7 +144,7 @@ impl OnlineStats {
         self.mean = delta.mul_add(1.0 / (self.size as f64), self.mean);
 
         // FMA: equivalent to: self.q += delta * (sample - self.mean);
-        self.q = delta.mul_add(sample - (*self).mean, (*self).q);
+        self.q = delta.mul_add(sample - self.mean, self.q);
 
         // Early return for special cases to avoid unnecessary computations
         if sample <= 0.0 {
