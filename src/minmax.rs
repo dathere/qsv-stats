@@ -39,6 +39,7 @@ impl<T: PartialOrd + Clone> MinMax<T> {
             // this comes first because it's the most common case
             2.. => {
                 if let Some(ref last) = self.last_value {
+                    #[allow(clippy::match_same_arms)]
                     match sample.partial_cmp(last) {
                         Some(Ordering::Greater) => self.ascending_pairs += 1,
                         Some(Ordering::Less) => self.descending_pairs += 1,
