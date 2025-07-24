@@ -57,9 +57,10 @@ pub struct OnlineStats {
     // flags (2 bytes)
     has_zero: bool,     // 1 byte
     has_negative: bool, // 1 byte
+    hg_sums: bool,      // 1 byte
 
     // Padding to reach 64 bytes for cache alignment
-    _padding: [u8; 22], // 22 bytes padding
+    _padding: [u8; 21], // 21 bytes padding
 }
 
 impl OnlineStats {
@@ -147,7 +148,7 @@ impl OnlineStats {
         self.q = delta.mul_add(sample - self.mean, self.q);
 
         // Optimized path for positive numbers (most common case)
-        if sample > 0.0 && !self.has_negative && !self.has_zero {
+        if self.hg_sums && sample > 0.0 {
             // Fast path: compute harmonic & geometric sums directly
             // use FMA. equivalent to: self.harmonic_sum += 1.0 / sample
             self.harmonic_sum = (1.0 / sample).mul_add(1.0, self.harmonic_sum);
@@ -163,6 +164,7 @@ impl OnlineStats {
             } else {
                 self.has_zero = true;
             }
+            self.hg_sums = !self.has_negative && !self.has_zero;
         }
     }
 
@@ -230,7 +232,8 @@ impl Default for OnlineStats {
             geometric_sum: 0.0,
             has_zero: false,
             has_negative: false,
-            _padding: [0; 22],
+            hg_sums: true,
+            _padding: [0; 21],
         }
     }
 }
