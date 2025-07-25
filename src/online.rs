@@ -148,7 +148,7 @@ impl OnlineStats {
         self.q = delta.mul_add(sample - self.mean, self.q);
 
         // Optimized path for positive numbers (most common case)
-        if self.hg_sums && sample > 0.0 {
+        if sample > 0.0 && self.hg_sums {
             // Fast path: compute harmonic & geometric sums directly
             // use FMA. equivalent to: self.harmonic_sum += 1.0 / sample
             self.harmonic_sum = (1.0 / sample).mul_add(1.0, self.harmonic_sum);
