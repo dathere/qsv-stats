@@ -168,12 +168,37 @@ impl OnlineStats {
         }
     }
 
+    /// Add a new f64 sample.
+    /// Skipping the ToPrimitive conversion.
+    #[inline]
+    pub fn add_f64(&mut self, sample: f64) {
+        self.size += 1;
+        let delta = sample - self.mean;
+
+        self.mean = delta.mul_add(1.0 / (self.size as f64), self.mean);
+        self.q = delta.mul_add(sample - self.mean, self.q);
+
+        if sample > 0.0 && self.hg_sums {
+            self.harmonic_sum = (1.0 / sample).mul_add(1.0, self.harmonic_sum);
+            self.geometric_sum = sample.ln().mul_add(1.0, self.geometric_sum);
+            return;
+        }
+
+        if sample <= 0.0 {
+            if sample.is_sign_negative() {
+                self.has_negative = true;
+            } else {
+                self.has_zero = true;
+            }
+            self.hg_sums = !self.has_negative && !self.has_zero;
+        }
+    }
+
     /// Add a new NULL value to the population.
-    ///
     /// This increases the population size by `1`.
     #[inline]
     pub fn add_null(&mut self) {
-        self.add(&0usize);
+        self.add_f64(0.0);
     }
 
     /// Returns the number of data points.
