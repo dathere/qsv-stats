@@ -1,5 +1,5 @@
 use std::collections::BinaryHeap;
-// use foldhash::{HashMap, HashMapExt};
+use foldhash::{HashMap, HashMapExt};
 use std::default::Default;
 use std::iter::{FromIterator, IntoIterator};
 
