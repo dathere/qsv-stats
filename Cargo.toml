@@ -11,7 +11,7 @@ keywords      = ["statistics", "frequency", "mean", "stddev", "quartiles"]
 categories    = ["science", "mathematics"]
 license       = "MIT OR Unlicense"
 edition       = "2024"
-rust-version  = "1.88"
+rust-version  = "1.89"
 
 [lib]
 name = "stats"
