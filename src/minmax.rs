@@ -1,3 +1,4 @@
+#![allow(clippy::cast_lossless)]
 use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
 use std::fmt;
