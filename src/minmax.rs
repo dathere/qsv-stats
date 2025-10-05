@@ -118,10 +118,14 @@ impl<T: PartialOrd + Clone> MinMax<T> {
     #[inline]
     #[must_use]
     pub fn sort_order(&self) -> SortOrder {
-        match self.sortiness() {
-            1.0 => SortOrder::Ascending,
-            -1.0 => SortOrder::Descending,
-            _ => SortOrder::Unsorted,
+        let sortiness = self.sortiness();
+        // use a large epsilon to avoid floating point imprecision
+        if sortiness >= 0.9999999999999999 {
+            SortOrder::Ascending
+        } else if sortiness <= -0.9999999999999999 {
+            SortOrder::Descending
+        } else {
+            SortOrder::Unsorted
         }
     }
 
@@ -402,4 +406,40 @@ mod test {
         assert!(mx3.sortiness() < 1.0); // Should show mixed sorting after merge
         assert_eq!(mx3.sortiness(), -0.2);
     }
+}
+
+#[test]
+fn test_sortiness_simple_alphabetical() {
+    let minmax: MinMax<String> = vec![
+        "a".to_string(),
+        "b".to_string(),
+        "c".to_string(),
+        "d".to_string(),
+    ]
+    .into_iter()
+    .collect();
+    assert_eq!(minmax.sortiness(), 1.0);
+    assert_eq!(minmax.sort_order(), SortOrder::Ascending);
+
+    let minmax: MinMax<String> = vec![
+        "d".to_string(),
+        "c".to_string(),
+        "b".to_string(),
+        "a".to_string(),
+    ]
+    .into_iter()
+    .collect();
+    assert_eq!(minmax.sortiness(), -1.0);
+    assert_eq!(minmax.sort_order(), SortOrder::Descending);
+
+    let minmax: MinMax<String> = vec![
+        "a".to_string(),
+        "b".to_string(),
+        "c".to_string(),
+        "a".to_string(),
+    ]
+    .into_iter()
+    .collect();
+    assert_eq!(minmax.sortiness(), 0.3333333333333333);
+    assert_eq!(minmax.sort_order(), SortOrder::Unsorted);
 }
