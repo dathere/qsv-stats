@@ -119,10 +119,11 @@ impl<T: PartialOrd + Clone> MinMax<T> {
     #[must_use]
     pub fn sort_order(&self) -> SortOrder {
         let sortiness = self.sortiness();
-        // use a large epsilon to avoid floating point imprecision
-        if sortiness >= 0.9999999999999999 {
+        // Use 1e-9 to handle floating point imprecision
+        // don't use f64::EPSILON because it's too small
+        if (sortiness - 1.0).abs() <= 1e-9 {
             SortOrder::Ascending
-        } else if sortiness <= -0.9999999999999999 {
+        } else if (sortiness + 1.0).abs() <= 1e-9 {
             SortOrder::Descending
         } else {
             SortOrder::Unsorted
