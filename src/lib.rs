@@ -22,6 +22,7 @@ pub use unsorted::{Unsorted, antimodes, mad, median, mode, modes, quartiles};
 /// This allows types like `f64` to be used in data structures that require
 /// `Ord`. When an ordering is not defined, an arbitrary order is returned.
 #[allow(clippy::non_send_fields_in_send_ty)]
+#[allow(clippy::derive_ord_xor_partial_ord)]
 #[derive(Clone, PartialEq, PartialOrd, Serialize, Deserialize)]
 struct Partial<T>(pub T);
 
