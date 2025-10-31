@@ -140,7 +140,7 @@ where
         return None;
     }
     let median_obs =
-        precalc_median.map_or_else(|| median_on_sorted(data).unwrap(), |precalc| precalc);
+        precalc_median.unwrap_or_else(|| median_on_sorted(data).unwrap());
 
     let mut abs_diff_vec: Vec<f64> = data
         .par_iter()
