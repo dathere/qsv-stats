@@ -44,6 +44,7 @@ where
 /// - 64-byte alignment for cache line efficiency
 /// - Grouped related fields together
 /// - Uses bit flags to reduce padding overhead
+#[allow(clippy::unsafe_derive_deserialize)]
 #[derive(Clone, Copy, Serialize, Deserialize, PartialEq)]
 #[repr(C, align(64))]
 pub struct OnlineStats {
@@ -169,7 +170,7 @@ impl OnlineStats {
     }
 
     /// Add a new f64 sample.
-    /// Skipping the ToPrimitive conversion.
+    /// Skipping the `ToPrimitive` conversion.
     #[inline]
     pub fn add_f64(&mut self, sample: f64) {
         self.size += 1;
