@@ -7,6 +7,8 @@ use serde::{Deserialize, Serialize};
 
 use {crate::Commute, crate::Partial};
 
+const PARALLEL_THRESHOLD: usize = 10_000;
+
 /// Compute the exact median on a stream of data.
 ///
 /// (This has time complexity `O(nlogn)` and space complexity `O(n)`.)
@@ -141,12 +143,27 @@ where
     }
     let median_obs = precalc_median.unwrap_or_else(|| median_on_sorted(data).unwrap());
 
-    let mut abs_diff_vec: Vec<f64> = data
-        .par_iter()
-        .map(|x| (median_obs - unsafe { x.to_f64().unwrap_unchecked() }).abs())
-        .collect();
+    // Use adaptive parallel processing based on data size
+    let mut abs_diff_vec = if data.len() < PARALLEL_THRESHOLD {
+        // Sequential processing for small datasets
+        let mut vec = Vec::with_capacity(data.len());
+        for x in data {
+            vec.push((median_obs - unsafe { x.to_f64().unwrap_unchecked() }).abs());
+        }
+        vec
+    } else {
+        // Parallel processing for large datasets
+        data.par_iter()
+            .map(|x| (median_obs - unsafe { x.to_f64().unwrap_unchecked() }).abs())
+            .collect()
+    };
 
-    abs_diff_vec.par_sort_unstable_by(|a, b| unsafe { a.partial_cmp(b).unwrap_unchecked() });
+    // Use adaptive sorting based on size
+    if abs_diff_vec.len() < PARALLEL_THRESHOLD {
+        abs_diff_vec.sort_unstable_by(|a, b| unsafe { a.partial_cmp(b).unwrap_unchecked() });
+    } else {
+        abs_diff_vec.par_sort_unstable_by(|a, b| unsafe { a.partial_cmp(b).unwrap_unchecked() });
+    }
     median_on_sorted(&abs_diff_vec)
 }
 
@@ -277,8 +294,11 @@ where
     let mut store_idx = left;
 
     // Move all elements smaller than pivot to the left
+    // Cache pivot position for better cache locality (access data[right] directly each time)
     for i in left..right {
-        if data[i] <= data[right] {
+        // Safety: i, store_idx, and right are guaranteed to be in bounds
+        // Compare directly with pivot at data[right] - compiler should optimize this access
+        if unsafe { data.get_unchecked(i) <= data.get_unchecked(right) } {
             data.swap(i, store_idx);
             store_idx += 1;
         }
@@ -304,9 +324,18 @@ where
     indices.swap(pivot_idx, right);
     let mut store_idx = left;
 
+    // Cache pivot index and value for better cache locality
+    // This reduces indirection: indices[right] -> data[indices[right]]
+    // Safety: right is guaranteed to be in bounds
+    let pivot_idx_cached = unsafe { *indices.get_unchecked(right) };
+    let pivot_val = unsafe { data.get_unchecked(pivot_idx_cached) };
+
     // Move all elements smaller than pivot to the left
+    let mut elem_idx: usize;
     for i in left..right {
-        if data[indices[i]] <= data[indices[right]] {
+        // Safety: i and store_idx are guaranteed to be in bounds
+        elem_idx = unsafe { *indices.get_unchecked(i) };
+        if unsafe { data.get_unchecked(elem_idx) <= pivot_val } {
             indices.swap(i, store_idx);
             store_idx += 1;
         }
@@ -688,6 +717,7 @@ where
 ///
 /// * `T`: The value type that implements `PartialOrd` + `Clone`
 /// * `I`: The iterator type
+#[allow(clippy::type_complexity)]
 #[inline]
 fn modes_and_antimodes_on_sorted<T, I>(
     mut it: I,
@@ -703,6 +733,7 @@ where
     };
 
     // Estimate capacity using square root of size
+    #[allow(clippy::cast_sign_loss)]
     let mut runs: Vec<(T, u32)> =
         Vec::with_capacity(((size as f64).sqrt() as usize).clamp(16, 1_000));
 
@@ -750,26 +781,37 @@ where
     let estimated_modes = (runs.len() / 10).clamp(1, 10);
     let estimated_antimodes = 10.min(runs.len());
 
-    let mut modes_result = Vec::with_capacity(estimated_modes);
-    let mut antimodes_result = Vec::with_capacity(estimated_antimodes);
+    // Collect indices first to avoid unnecessary cloning
+    let mut modes_indices = Vec::with_capacity(estimated_modes);
+    let mut antimodes_indices = Vec::with_capacity(estimated_antimodes);
     let mut mode_count = 0;
     let mut antimodes_count = 0;
     let mut antimodes_collected = 0_u32;
 
-    // Count and collect modes and antimodes simultaneously
-    for (val, count) in &runs {
+    // Count and collect mode/antimode indices simultaneously
+    for (idx, (_, count)) in runs.iter().enumerate() {
         if *count == highest_count {
-            modes_result.push(val.clone());
+            modes_indices.push(idx);
             mode_count += 1;
         }
         if *count == lowest_count {
             antimodes_count += 1;
             if antimodes_collected < 10 {
-                antimodes_result.push(val.clone());
+                antimodes_indices.push(idx);
                 antimodes_collected += 1;
             }
         }
     }
+
+    // Extract values only for the indices we need, avoiding unnecessary clones
+    let modes_result: Vec<T> = modes_indices
+        .into_iter()
+        .map(|idx| runs[idx].0.clone())
+        .collect();
+    let antimodes_result: Vec<T> = antimodes_indices
+        .into_iter()
+        .map(|idx| runs[idx].0.clone())
+        .collect();
 
     (
         (modes_result, mode_count, highest_count),
@@ -784,6 +826,7 @@ where
 /// Note that this works on types that do not define a total ordering like
 /// `f32` and `f64`. When an ordering is not defined, an arbitrary order
 /// is returned.
+#[allow(clippy::unsafe_derive_deserialize)]
 #[derive(Clone, Serialize, Deserialize, Eq, PartialEq)]
 pub struct Unsorted<T> {
     sorted: bool,
@@ -822,7 +865,12 @@ impl<T: PartialOrd> Unsorted<T> {
     #[inline]
     fn sort(&mut self) {
         if !self.sorted {
-            self.data.par_sort_unstable();
+            // Use sequential sort for small datasets (< 10k elements) to avoid parallel overhead
+            if self.data.len() < PARALLEL_THRESHOLD {
+                self.data.sort_unstable();
+            } else {
+                self.data.par_sort_unstable();
+            }
             self.sorted = true;
         }
     }
@@ -917,25 +965,30 @@ impl<T: PartialOrd + PartialEq + Clone> Unsorted<T> {
                 .collect();
 
             // Combine results from chunks, checking boundaries between chunks
+            // Pre-compute chunk boundaries to avoid repeated multiplications
             let mut total = 0;
+            let mut curr_chunk_start_idx = 0;
+
             for (i, &count) in chunk_results.iter().enumerate() {
                 total += count;
 
                 // Check boundary between chunks
                 if i > 0 {
-                    // safety: When i > 0:
-                    // - (i * CHUNK_SIZE) - 1 is valid because it points to the last element of the previous chunk
-                    // - i * CHUNK_SIZE is valid because it points to the first element of the current chunk
-                    // These indices are guaranteed to be in bounds since we're iterating over chunk_results
-                    // which was created from valid chunks of self.data
+                    // Pre-compute indices once to avoid repeated multiplication
+                    // Safety: These indices are guaranteed to be in bounds since we're iterating
+                    // over chunk_results which was created from valid chunks of self.data
                     unsafe {
-                        let prev_chunk_end = self.data.get_unchecked((i * CHUNK_SIZE) - 1);
-                        let curr_chunk_start = self.data.get_unchecked(i * CHUNK_SIZE);
+                        let prev_chunk_end_idx = curr_chunk_start_idx - 1;
+                        let prev_chunk_end = self.data.get_unchecked(prev_chunk_end_idx);
+                        let curr_chunk_start = self.data.get_unchecked(curr_chunk_start_idx);
                         if prev_chunk_end == curr_chunk_start {
                             total -= 1;
                         }
                     }
                 }
+
+                // Update for next iteration
+                curr_chunk_start_idx += CHUNK_SIZE;
             }
 
             total
@@ -993,6 +1046,7 @@ impl<T: PartialOrd + Clone> Unsorted<T> {
 
     /// Returns the modes and antimodes of the data.
     /// `antimodes_result` only returns the first 10 antimodes
+    #[allow(clippy::type_complexity)]
     #[inline]
     pub fn modes_antimodes(&mut self) -> ((Vec<T>, usize, u32), (Vec<T>, usize, u32)) {
         if self.data.is_empty() {
@@ -1150,6 +1204,7 @@ where
             // Calculate the ordinal rank using nearest-rank method
             // see https://en.wikipedia.org/wiki/Percentile#The_nearest-rank_method
             // n = ⌈(P/100) × N⌉
+            #[allow(clippy::cast_sign_loss)]
             let rank = ((f64::from(p) / 100.0) * len as f64).ceil() as usize;
 
             // Convert to 0-based index
