@@ -700,7 +700,7 @@ where
 /// - For empty slices, returns empty vectors and zero counts
 /// - For single value iterators, returns that value as the mode and empty antimode
 /// - When all values occur exactly once, returns empty mode and up to 10 values as antimodes
-/// 
+///
 /// # Returns
 ///
 /// A tuple containing:
@@ -721,7 +721,7 @@ where
     T: PartialOrd + Clone,
 {
     let size = data.len();
-    
+
     // Early return for empty slice
     if size == 0 {
         return ((Vec::new(), 0, 0), (Vec::new(), 0, 0));
@@ -813,7 +813,6 @@ where
         (antimodes_result, antimodes_count, lowest_count),
     )
 }
-
 
 /// A commutative data structure for lazily sorted sequences of data.
 ///
@@ -1111,10 +1110,8 @@ impl<T: PartialOrd + ToPrimitive + Clone> Unsorted<T> {
         if self.data.is_empty() {
             return None;
         }
-        // Pre-allocate with known capacity to avoid reallocations
-        let mut data_copy = Vec::with_capacity(self.data.len());
-        // Clone values more efficiently
-        data_copy.extend(self.data.iter().map(|x| Partial(x.0.clone())));
+        let mut data_copy: Vec<Partial<T>> =
+            self.data.iter().map(|x| Partial(x.0.clone())).collect();
         quartiles_with_selection(&mut data_copy)
     }
 }
