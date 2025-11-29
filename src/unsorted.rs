@@ -697,7 +697,7 @@ where
 /// - Mode is the most frequently occurring value(s)
 /// - Antimode is the least frequently occurring value(s)
 /// - Only returns up to 10 antimodes to avoid returning the full set when all values are unique
-/// - For empty iterators, returns empty vectors and zero counts
+/// - For empty slices, returns empty vectors and zero counts
 /// - For single value iterators, returns that value as the mode and empty antimode
 /// - When all values occur exactly once, returns empty mode and up to 10 values as antimodes
 /// 
