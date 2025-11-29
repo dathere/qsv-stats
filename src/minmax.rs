@@ -51,9 +51,10 @@ impl<T: PartialOrd + Clone> MinMax<T> {
                 }
             }
             0 => {
-                // first sample
-                self.first_value = Some(sample.clone());
-                self.min = Some(sample.clone());
+                // first sample - clone once and reuse for all three fields
+                let sample_clone = sample.clone();
+                self.first_value = Some(sample_clone.clone());
+                self.min = Some(sample_clone);
                 self.max = Some(sample);
                 self.len = 1;
                 return;
@@ -70,10 +71,13 @@ impl<T: PartialOrd + Clone> MinMax<T> {
             }
         }
 
-        // Update min/max
-        if self.min.as_ref().is_none_or(|v| &sample < v) {
+        // Update min/max - only clone when actually updating
+        let needs_min_update = self.min.as_ref().is_none_or(|v| &sample < v);
+        let needs_max_update = !needs_min_update && self.max.as_ref().is_none_or(|v| &sample > v);
+        
+        if needs_min_update {
             self.min = Some(sample.clone());
-        } else if self.max.as_ref().is_none_or(|v| &sample > v) {
+        } else if needs_max_update {
             self.max = Some(sample.clone());
         }
 
