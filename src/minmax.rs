@@ -73,7 +73,7 @@ impl<T: PartialOrd + Clone> MinMax<T> {
         // Update min/max - only clone when actually updating
         let needs_min_update = self.min.as_ref().is_none_or(|v| &sample < v);
         let needs_max_update = !needs_min_update && self.max.as_ref().is_none_or(|v| &sample > v);
-        
+
         if needs_min_update {
             self.min = Some(sample.clone());
         } else if needs_max_update {
