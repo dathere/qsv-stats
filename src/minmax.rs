@@ -52,9 +52,8 @@ impl<T: PartialOrd + Clone> MinMax<T> {
             }
             0 => {
                 // first sample - clone once and reuse for all three fields
-                let sample_clone = sample.clone();
-                self.first_value = Some(sample_clone.clone());
-                self.min = Some(sample_clone);
+                self.first_value = Some(sample.clone());
+                self.min = Some(sample.clone());
                 self.max = Some(sample);
                 self.len = 1;
                 return;
