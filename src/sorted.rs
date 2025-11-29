@@ -116,13 +116,8 @@ impl<T: PartialOrd + Clone> Sorted<T> {
     /// Returns the mode of the data.
     #[inline]
     pub fn mode(&self) -> Option<T> {
-        // Avoid cloning the entire BinaryHeap structure by iterating and collecting values
-        // Extract inner values directly without cloning the heap structure
-        let mut values: Vec<T> = self.data.iter().map(|p| p.0.clone()).collect();
-        // Sort the values
-        values.sort_unstable();
-        // Find mode on sorted values
-        mode_on_sorted(values.into_iter())
+        let p = mode_on_sorted(self.data.clone().into_sorted_vec().into_iter());
+        p.map(|p| p.0)
     }
 
     // #[inline]
