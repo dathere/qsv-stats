@@ -685,13 +685,22 @@ where
     mode
 }
 
-/// Computes both modes and antimodes from a sorted iterator of values.
+/// Computes both modes and antimodes from a sorted slice of values.
+/// This version works with references to avoid unnecessary cloning.
 ///
 /// # Arguments
 ///
-/// * `it` - A sorted iterator of values
-/// * `size` - The total number of elements in the iterator
+/// * `data` - A sorted slice of values
 ///
+/// # Notes
+///
+/// - Mode is the most frequently occurring value(s)
+/// - Antimode is the least frequently occurring value(s)
+/// - Only returns up to 10 antimodes to avoid returning the full set when all values are unique
+/// - For empty iterators, returns empty vectors and zero counts
+/// - For single value iterators, returns that value as the mode and empty antimode
+/// - When all values occur exactly once, returns empty mode and up to 10 values as antimodes
+/// 
 /// # Returns
 ///
 /// A tuple containing:
@@ -703,54 +712,40 @@ where
 ///   - Vec<T>: Vector containing up to 10 antimode values
 ///   - usize: Total number of antimodes
 ///   - u32: Frequency/count of the antimode values
-///
-/// # Notes
-///
-/// - Mode is the most frequently occurring value(s)
-/// - Antimode is the least frequently occurring value(s)
-/// - Only returns up to 10 antimodes to avoid returning the full set when all values are unique
-/// - For empty iterators, returns empty vectors and zero counts
-/// - For single value iterators, returns that value as the mode and empty antimode
-/// - When all values occur exactly once, returns empty mode and up to 10 values as antimodes
-///
-/// # Type Parameters
-///
-/// * `T`: The value type that implements `PartialOrd` + `Clone`
-/// * `I`: The iterator type
 #[allow(clippy::type_complexity)]
 #[inline]
-fn modes_and_antimodes_on_sorted<T, I>(
-    mut it: I,
-    size: usize,
+fn modes_and_antimodes_on_sorted_slice<T>(
+    data: &[Partial<T>],
 ) -> ((Vec<T>, usize, u32), (Vec<T>, usize, u32))
 where
     T: PartialOrd + Clone,
-    I: Iterator<Item = T>,
 {
-    // Early return for empty iterator
-    let Some(first) = it.next() else {
+    let size = data.len();
+    
+    // Early return for empty slice
+    if size == 0 {
         return ((Vec::new(), 0, 0), (Vec::new(), 0, 0));
-    };
+    }
 
     // Estimate capacity using square root of size
     #[allow(clippy::cast_sign_loss)]
-    let mut runs: Vec<(T, u32)> =
+    let mut runs: Vec<(&T, u32)> =
         Vec::with_capacity(((size as f64).sqrt() as usize).clamp(16, 1_000));
 
-    let mut current_value = first;
+    let mut current_value = &data[0].0;
     let mut current_count = 1;
     let mut highest_count = 1;
     let mut lowest_count = u32::MAX;
 
     // Count consecutive runs - optimized to reduce allocations
-    for x in it {
-        if x == current_value {
+    for x in data.iter().skip(1) {
+        if x.0 == *current_value {
             current_count += 1;
             highest_count = highest_count.max(current_count);
         } else {
             runs.push((current_value, current_count));
             lowest_count = lowest_count.min(current_count);
-            current_value = x;
+            current_value = &x.0;
             current_count = 1;
         }
     }
@@ -760,7 +755,7 @@ where
     // Early return if only one unique value
     if runs.len() == 1 {
         let (val, count) = runs.pop().unwrap();
-        return ((vec![val], 1, count), (Vec::new(), 0, 0));
+        return ((vec![val.clone()], 1, count), (Vec::new(), 0, 0));
     }
 
     // Special case: if all values appear exactly once
@@ -769,7 +764,7 @@ where
         let total_count = runs.len();
         let mut antimodes = Vec::with_capacity(antimodes_count);
         for (val, _) in runs.into_iter().take(antimodes_count) {
-            antimodes.push(val);
+            antimodes.push(val.clone());
         }
         // For modes: empty, count 0, occurrences 0 (not 1, 1)
         return ((Vec::new(), 0, 0), (antimodes, total_count, 1));
@@ -803,7 +798,7 @@ where
         }
     }
 
-    // Extract values only for the indices we need, avoiding unnecessary clones
+    // Extract values only for the indices we need, cloning only at the end
     let modes_result: Vec<T> = modes_indices
         .into_iter()
         .map(|idx| runs[idx].0.clone())
@@ -818,6 +813,7 @@ where
         (antimodes_result, antimodes_count, lowest_count),
     )
 }
+
 
 /// A commutative data structure for lazily sorted sequences of data.
 ///
@@ -1030,7 +1026,7 @@ impl<T: PartialOrd + Clone> Unsorted<T> {
             return (Vec::new(), 0, 0);
         }
         self.sort();
-        modes_and_antimodes_on_sorted(self.data.iter().map(|p| p.0.clone()), self.len()).0
+        modes_and_antimodes_on_sorted_slice(&self.data).0
     }
 
     /// Returns the antimodes of the data.
@@ -1041,7 +1037,7 @@ impl<T: PartialOrd + Clone> Unsorted<T> {
             return (Vec::new(), 0, 0);
         }
         self.sort();
-        modes_and_antimodes_on_sorted(self.data.iter().map(|p| p.0.clone()), self.len()).1
+        modes_and_antimodes_on_sorted_slice(&self.data).1
     }
 
     /// Returns the modes and antimodes of the data.
@@ -1053,7 +1049,7 @@ impl<T: PartialOrd + Clone> Unsorted<T> {
             return ((Vec::new(), 0, 0), (Vec::new(), 0, 0));
         }
         self.sort();
-        modes_and_antimodes_on_sorted(self.data.iter().map(|p| p.0.clone()), self.len())
+        modes_and_antimodes_on_sorted_slice(&self.data)
     }
 }
 
@@ -1115,9 +1111,10 @@ impl<T: PartialOrd + ToPrimitive + Clone> Unsorted<T> {
         if self.data.is_empty() {
             return None;
         }
-        // Create a copy using collect to avoid mutating the original for selection
-        let mut data_copy: Vec<Partial<T>> =
-            self.data.iter().map(|x| Partial(x.0.clone())).collect();
+        // Pre-allocate with known capacity to avoid reallocations
+        let mut data_copy = Vec::with_capacity(self.data.len());
+        // Clone values more efficiently
+        data_copy.extend(self.data.iter().map(|x| Partial(x.0.clone())));
         quartiles_with_selection(&mut data_copy)
     }
 }
