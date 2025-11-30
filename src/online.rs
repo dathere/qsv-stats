@@ -7,35 +7,32 @@ use crate::Commute;
 
 /// Compute the standard deviation of a stream in constant space.
 #[inline]
-pub fn stddev<'a, I, T>(x: I) -> f64
+pub fn stddev<I, T>(x: I) -> f64
 where
     I: IntoIterator<Item = T>,
-    T: Into<&'a f64>,
+    T: ToPrimitive,
 {
-    let it = x.into_iter();
-    stddev(it)
+    x.into_iter().collect::<OnlineStats>().stddev()
 }
 
 /// Compute the variance of a stream in constant space.
 #[inline]
-pub fn variance<'a, I, T>(x: I) -> f64
+pub fn variance<I, T>(x: I) -> f64
 where
     I: IntoIterator<Item = T>,
-    T: Into<&'a f64>,
+    T: ToPrimitive,
 {
-    let it = x.into_iter();
-    variance(it)
+    x.into_iter().collect::<OnlineStats>().variance()
 }
 
 /// Compute the mean of a stream in constant space.
 #[inline]
-pub fn mean<'a, I, T>(x: I) -> f64
+pub fn mean<I, T>(x: I) -> f64
 where
     I: IntoIterator<Item = T>,
-    T: Into<&'a f64>,
+    T: ToPrimitive,
 {
-    let it = x.into_iter();
-    mean(it)
+    x.into_iter().collect::<OnlineStats>().mean()
 }
 
 /// Online state for computing mean, variance and standard deviation.
