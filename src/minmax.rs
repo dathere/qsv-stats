@@ -51,7 +51,7 @@ impl<T: PartialOrd + Clone> MinMax<T> {
                 }
             }
             0 => {
-                // first sample
+                // first sample - clone for first_value and min, move to max
                 self.first_value = Some(sample.clone());
                 self.min = Some(sample.clone());
                 self.max = Some(sample);
