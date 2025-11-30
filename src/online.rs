@@ -7,35 +7,32 @@ use crate::Commute;
 
 /// Compute the standard deviation of a stream in constant space.
 #[inline]
-pub fn stddev<'a, I, T>(x: I) -> f64
+pub fn stddev<I, T>(x: I) -> f64
 where
     I: IntoIterator<Item = T>,
-    T: Into<&'a f64>,
+    T: ToPrimitive,
 {
-    let it = x.into_iter();
-    stddev(it)
+    x.into_iter().collect::<OnlineStats>().stddev()
 }
 
 /// Compute the variance of a stream in constant space.
 #[inline]
-pub fn variance<'a, I, T>(x: I) -> f64
+pub fn variance<I, T>(x: I) -> f64
 where
     I: IntoIterator<Item = T>,
-    T: Into<&'a f64>,
+    T: ToPrimitive,
 {
-    let it = x.into_iter();
-    variance(it)
+    x.into_iter().collect::<OnlineStats>().variance()
 }
 
 /// Compute the mean of a stream in constant space.
 #[inline]
-pub fn mean<'a, I, T>(x: I) -> f64
+pub fn mean<I, T>(x: I) -> f64
 where
     I: IntoIterator<Item = T>,
-    T: Into<&'a f64>,
+    T: ToPrimitive,
 {
-    let it = x.into_iter();
-    mean(it)
+    x.into_iter().collect::<OnlineStats>().mean()
 }
 
 /// Online state for computing mean, variance and standard deviation.
@@ -291,7 +288,7 @@ impl<T: ToPrimitive> Extend<T> for OnlineStats {
 
 #[cfg(test)]
 mod test {
-    use super::OnlineStats;
+    use super::{OnlineStats, mean, stddev, variance};
     use {crate::Commute, crate::merge_all};
 
     #[test]
@@ -417,5 +414,169 @@ mod test {
         assert!(stats.mean().is_nan());
         assert!(stats.geometric_mean().is_nan());
         assert!(stats.harmonic_mean().is_nan());
+    }
+
+    // Tests for wrapper functions: stddev(), variance(), mean()
+
+    #[test]
+    fn test_mean_wrapper_basic() {
+        // Test with f64 values
+        let result = mean(vec![1.0f64, 2.0, 3.0, 4.0, 5.0]);
+        assert!((result - 3.0).abs() < 1e-10);
+
+        // Test with i32 values
+        let result = mean(vec![1i32, 2, 3, 4, 5]);
+        assert!((result - 3.0).abs() < 1e-10);
+
+        // Test with u32 values
+        let result = mean(vec![10u32, 20, 30]);
+        assert!((result - 20.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_mean_wrapper_empty() {
+        let result = mean(Vec::<f64>::new());
+        assert!(result.is_nan());
+    }
+
+    #[test]
+    fn test_mean_wrapper_single_element() {
+        assert!((mean(vec![42.0f64]) - 42.0).abs() < 1e-10);
+        assert!((mean(vec![100i32]) - 100.0).abs() < 1e-10);
+        assert!((mean(vec![0u8]) - 0.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_mean_wrapper_negative_values() {
+        let result = mean(vec![-5.0f64, 5.0]);
+        assert!(result.abs() < 1e-10); // Mean should be 0
+
+        let result = mean(vec![-10i32, -20, -30]);
+        assert!((result - (-20.0)).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_mean_wrapper_various_numeric_types() {
+        // Test with different numeric types
+        assert!((mean(vec![1u8, 2, 3]) - 2.0).abs() < 1e-10);
+        assert!((mean(vec![1u16, 2, 3]) - 2.0).abs() < 1e-10);
+        assert!((mean(vec![1u64, 2, 3]) - 2.0).abs() < 1e-10);
+        assert!((mean(vec![1i8, 2, 3]) - 2.0).abs() < 1e-10);
+        assert!((mean(vec![1i16, 2, 3]) - 2.0).abs() < 1e-10);
+        assert!((mean(vec![1i64, 2, 3]) - 2.0).abs() < 1e-10);
+        assert!((mean(vec![1.0f32, 2.0, 3.0]) - 2.0).abs() < 1e-6);
+        assert!((mean(vec![1usize, 2, 3]) - 2.0).abs() < 1e-10);
+        assert!((mean(vec![1isize, 2, 3]) - 2.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_variance_wrapper_basic() {
+        // Variance of [1, 2, 3, 4, 5] = 2.0 (population variance)
+        let result = variance(vec![1.0f64, 2.0, 3.0, 4.0, 5.0]);
+        assert!((result - 2.0).abs() < 1e-10);
+
+        // Test with i32 values
+        let result = variance(vec![1i32, 2, 3, 4, 5]);
+        assert!((result - 2.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_variance_wrapper_empty() {
+        let result = variance(Vec::<f64>::new());
+        assert!(result.is_nan());
+    }
+
+    #[test]
+    fn test_variance_wrapper_single_element() {
+        // Variance of a single element is 0
+        assert!(variance(vec![42.0f64]).abs() < 1e-10);
+        assert!(variance(vec![100i32]).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_variance_wrapper_identical_values() {
+        // Variance of identical values is 0
+        let result = variance(vec![5.0f64, 5.0, 5.0, 5.0]);
+        assert!(result.abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_variance_wrapper_various_numeric_types() {
+        // Test with different numeric types - variance of [1, 2, 3] = 2/3
+        let expected = 2.0 / 3.0;
+        assert!((variance(vec![1u8, 2, 3]) - expected).abs() < 1e-10);
+        assert!((variance(vec![1u16, 2, 3]) - expected).abs() < 1e-10);
+        assert!((variance(vec![1i32, 2, 3]) - expected).abs() < 1e-10);
+        assert!((variance(vec![1i64, 2, 3]) - expected).abs() < 1e-10);
+        assert!((variance(vec![1usize, 2, 3]) - expected).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_stddev_wrapper_basic() {
+        // Standard deviation of [1, 2, 3, 4, 5] = sqrt(2.0)
+        let result = stddev(vec![1.0f64, 2.0, 3.0, 4.0, 5.0]);
+        assert!((result - 2.0f64.sqrt()).abs() < 1e-10);
+
+        // Test with i32 values
+        let result = stddev(vec![1i32, 2, 3, 4, 5]);
+        assert!((result - 2.0f64.sqrt()).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_stddev_wrapper_empty() {
+        let result = stddev(Vec::<f64>::new());
+        assert!(result.is_nan());
+    }
+
+    #[test]
+    fn test_stddev_wrapper_single_element() {
+        // Standard deviation of a single element is 0
+        assert!(stddev(vec![42.0f64]).abs() < 1e-10);
+        assert!(stddev(vec![100i32]).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_stddev_wrapper_identical_values() {
+        // Standard deviation of identical values is 0
+        let result = stddev(vec![5.0f64, 5.0, 5.0, 5.0]);
+        assert!(result.abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_stddev_wrapper_various_numeric_types() {
+        // Test with different numeric types - stddev of [1, 2, 3] = sqrt(2/3)
+        let expected = (2.0f64 / 3.0).sqrt();
+        assert!((stddev(vec![1u8, 2, 3]) - expected).abs() < 1e-10);
+        assert!((stddev(vec![1u16, 2, 3]) - expected).abs() < 1e-10);
+        assert!((stddev(vec![1i32, 2, 3]) - expected).abs() < 1e-10);
+        assert!((stddev(vec![1i64, 2, 3]) - expected).abs() < 1e-10);
+        assert!((stddev(vec![1usize, 2, 3]) - expected).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_wrapper_functions_consistency() {
+        // Verify that wrapper functions produce same results as OnlineStats methods
+        let data = vec![1.0f64, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0];
+        let stats = OnlineStats::from_slice(&data);
+
+        assert!((mean(data.clone()) - stats.mean()).abs() < 1e-10);
+        assert!((variance(data.clone()) - stats.variance()).abs() < 1e-10);
+        assert!((stddev(data) - stats.stddev()).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_wrapper_functions_with_iterators() {
+        // Test that wrappers work with various iterator types
+        let arr = [1, 2, 3, 4, 5];
+
+        // Array iterator
+        assert!((mean(arr) - 3.0).abs() < 1e-10);
+
+        // Range iterator
+        assert!((mean(1..=5) - 3.0).abs() < 1e-10);
+
+        // Mapped iterator
+        let result = mean((1..=5).map(|x| x * 2));
+        assert!((result - 6.0).abs() < 1e-10);
     }
 }

@@ -1,4 +1,3 @@
-#![allow(unconditional_recursion)]
 #![allow(clippy::default_trait_access)]
 #![allow(clippy::cast_precision_loss)]
 #![allow(clippy::cast_possible_truncation)]
