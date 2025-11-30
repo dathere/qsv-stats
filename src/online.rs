@@ -568,13 +568,13 @@ mod test {
     fn test_wrapper_functions_with_iterators() {
         // Test that wrappers work with various iterator types
         let arr = [1, 2, 3, 4, 5];
-        
+
         // Array iterator
         assert!((mean(arr) - 3.0).abs() < 1e-10);
-        
+
         // Range iterator
         assert!((mean(1..=5) - 3.0).abs() < 1e-10);
-        
+
         // Mapped iterator
         let result = mean((1..=5).map(|x| x * 2));
         assert!((result - 6.0).abs() < 1e-10);
