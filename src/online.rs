@@ -38,7 +38,7 @@ where
 /// Online state for computing mean, variance and standard deviation.
 ///
 /// Optimized memory layout for better cache performance:
-/// - Grouped related fields together
+/// - Grouped related fields together in hot, warm and cold paths.
 #[allow(clippy::unsafe_derive_deserialize)]
 #[derive(Clone, Copy, Serialize, Deserialize, PartialEq)]
 pub struct OnlineStats {
