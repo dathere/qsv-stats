@@ -125,9 +125,11 @@ impl OnlineStats {
     /// Return the number of negative, zero and positive counts.
     ///
     /// Returns a tuple `(negative_count, zero_count, positive_count)` where:
-    /// - `negative_count`: number of values less than 0
-    /// - `zero_count`: number of values equal to 0 (including +0.0 but not -0.0)
+    /// - `negative_count`: number of values with negative sign bit (including -0.0)
+    /// - `zero_count`: number of values equal to +0.0
     /// - `positive_count`: number of values greater than 0
+    ///
+    /// Note: -0.0 and +0.0 are distinguished by their sign bit and counted separately.
     ///
     /// # Example
     ///
@@ -684,8 +686,8 @@ mod test {
     #[test]
     fn test_n_counts_negative_zero() {
         let mut stats = OnlineStats::new();
-        // -0.0 is counted as negative per IEEE 754 (has negative sign bit)
-        // +0.0 is counted as zero
+        // -0.0 and +0.0 are distinguished by their sign bit
+        // -0.0 is counted as negative, +0.0 is counted as zero
         stats.extend(vec![-0.0f64, 0.0]);
 
         let (neg, zero, pos) = stats.n_counts();
