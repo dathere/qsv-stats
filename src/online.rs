@@ -38,27 +38,24 @@ where
 /// Online state for computing mean, variance and standard deviation.
 ///
 /// Optimized memory layout for better cache performance:
-/// - 64-byte alignment for cache line efficiency
-/// - Grouped related fields together
-/// - Uses bit flags to reduce padding overhead
+/// - Grouped related fields together in hot, warm and cold paths.
 #[allow(clippy::unsafe_derive_deserialize)]
 #[derive(Clone, Copy, Serialize, Deserialize, PartialEq)]
-#[repr(C, align(64))]
 pub struct OnlineStats {
-    // Core statistics (40 bytes)
-    size: u64,          // 8 bytes
-    mean: f64,          // 8 bytes
-    q: f64,             // 8 bytes
-    harmonic_sum: f64,  // 8 bytes
-    geometric_sum: f64, // 8 bytes
+    // Hot path - always accessed together (24 bytes)
+    size: u64, // 8 bytes - always accessed
+    mean: f64, // 8 bytes - always accessed
+    q: f64,    // 8 bytes - always accessed
 
-    // flags (2 bytes)
-    has_zero: bool,     // 1 byte
-    has_negative: bool, // 1 byte
-    hg_sums: bool,      // 1 byte
+    // Warm path - fast path for positive numbers (25 bytes)
+    hg_sums: bool,      // 1 byte - checked before sums
+    harmonic_sum: f64,  // 8 bytes - warm path
+    geometric_sum: f64, // 8 bytes - warm path
+    n_positive: u64,    // 8 bytes - warm path
 
-    // Padding to reach 64 bytes for cache alignment
-    _padding: [u8; 21], // 21 bytes padding
+    // Cold path - slow path for zeros/negatives (16 bytes)
+    n_zero: u64,     // 8 bytes - cold path
+    n_negative: u64, // 8 bytes - cold path
 }
 
 impl OnlineStats {
@@ -102,7 +99,7 @@ impl OnlineStats {
     /// Return the current harmonic mean.
     #[must_use]
     pub fn harmonic_mean(&self) -> f64 {
-        if self.is_empty() || self.has_zero || self.has_negative {
+        if self.is_empty() || self.n_zero > 0 || self.n_negative > 0 {
             f64::NAN
         } else {
             (self.size as f64) / self.harmonic_sum
@@ -113,16 +110,43 @@ impl OnlineStats {
     #[must_use]
     pub fn geometric_mean(&self) -> f64 {
         if self.is_empty()
-            || self.has_negative
+            || self.n_negative > 0
             || self.geometric_sum.is_infinite()
             || self.geometric_sum.is_nan()
         {
             f64::NAN
-        } else if self.has_zero {
+        } else if self.n_zero > 0 {
             0.0
         } else {
             (self.geometric_sum / (self.size as f64)).exp()
         }
+    }
+
+    /// Return the number of negative, zero and positive counts.
+    ///
+    /// Returns a tuple `(negative_count, zero_count, positive_count)` where:
+    /// - `negative_count`: number of values with negative sign bit (including -0.0)
+    /// - `zero_count`: number of values equal to +0.0
+    /// - `positive_count`: number of values greater than 0
+    ///
+    /// Note: -0.0 and +0.0 are distinguished by their sign bit and counted separately.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use stats::OnlineStats;
+    ///
+    /// let mut stats = OnlineStats::new();
+    /// stats.extend(vec![-2, -1, 0, 0, 1, 2, 3]);
+    ///
+    /// let (neg, zero, pos) = stats.n_counts();
+    /// assert_eq!(neg, 2);   // -2, -1
+    /// assert_eq!(zero, 2);  // 0, 0
+    /// assert_eq!(pos, 3);   // 1, 2, 3
+    /// ```
+    #[must_use]
+    pub const fn n_counts(&self) -> (u64, u64, u64) {
+        (self.n_negative, self.n_zero, self.n_positive)
     }
 
     // TODO: Calculate kurtosis
@@ -152,17 +176,20 @@ impl OnlineStats {
             self.harmonic_sum = (1.0 / sample).mul_add(1.0, self.harmonic_sum);
             // use FMA. equivalent to: self.geometric_sum += ln(sample)
             self.geometric_sum = sample.ln().mul_add(1.0, self.geometric_sum);
+            self.n_positive += 1;
             return;
         }
 
         // Handle special cases (zero and negative numbers)
         if sample <= 0.0 {
             if sample.is_sign_negative() {
-                self.has_negative = true;
+                self.n_negative += 1;
             } else {
-                self.has_zero = true;
+                self.n_zero += 1;
             }
-            self.hg_sums = !self.has_negative && !self.has_zero;
+            self.hg_sums = self.n_negative == 0 && self.n_zero == 0;
+        } else {
+            self.n_positive += 1;
         }
     }
 
@@ -179,16 +206,19 @@ impl OnlineStats {
         if sample > 0.0 && self.hg_sums {
             self.harmonic_sum = (1.0 / sample).mul_add(1.0, self.harmonic_sum);
             self.geometric_sum = sample.ln().mul_add(1.0, self.geometric_sum);
+            self.n_positive += 1;
             return;
         }
 
         if sample <= 0.0 {
             if sample.is_sign_negative() {
-                self.has_negative = true;
+                self.n_negative += 1;
             } else {
-                self.has_zero = true;
+                self.n_zero += 1;
             }
-            self.hg_sums = !self.has_negative && !self.has_zero;
+            self.hg_sums = self.n_negative == 0 && self.n_zero == 0;
+        } else {
+            self.n_positive += 1;
         }
     }
 
@@ -240,8 +270,9 @@ impl Commute for OnlineStats {
         self.harmonic_sum += v.harmonic_sum;
         self.geometric_sum += v.geometric_sum;
 
-        self.has_zero |= v.has_zero;
-        self.has_negative |= v.has_negative;
+        self.n_zero += v.n_zero;
+        self.n_negative += v.n_negative;
+        self.n_positive += v.n_positive;
     }
 }
 
@@ -253,10 +284,10 @@ impl Default for OnlineStats {
             q: 0.0,
             harmonic_sum: 0.0,
             geometric_sum: 0.0,
-            has_zero: false,
-            has_negative: false,
+            n_zero: 0,
+            n_negative: 0,
+            n_positive: 0,
             hg_sums: true,
-            _padding: [0; 21],
         }
     }
 }
@@ -578,5 +609,102 @@ mod test {
         // Mapped iterator
         let result = mean((1..=5).map(|x| x * 2));
         assert!((result - 6.0).abs() < 1e-10);
+    }
+
+    // Tests for n_counts functionality
+
+    #[test]
+    fn test_n_counts_basic() {
+        let mut stats = OnlineStats::new();
+        stats.extend(vec![-5, -3, 0, 0, 2, 4, 6]);
+
+        let (neg, zero, pos) = stats.n_counts();
+        assert_eq!(neg, 2, "Should have 2 negative values");
+        assert_eq!(zero, 2, "Should have 2 zero values");
+        assert_eq!(pos, 3, "Should have 3 positive values");
+    }
+
+    #[test]
+    fn test_n_counts_all_positive() {
+        let mut stats = OnlineStats::new();
+        stats.extend(vec![1.0, 2.0, 3.0, 4.0]);
+
+        let (neg, zero, pos) = stats.n_counts();
+        assert_eq!(neg, 0);
+        assert_eq!(zero, 0);
+        assert_eq!(pos, 4);
+    }
+
+    #[test]
+    fn test_n_counts_all_negative() {
+        let mut stats = OnlineStats::new();
+        stats.extend(vec![-1.0, -2.0, -3.0]);
+
+        let (neg, zero, pos) = stats.n_counts();
+        assert_eq!(neg, 3);
+        assert_eq!(zero, 0);
+        assert_eq!(pos, 0);
+    }
+
+    #[test]
+    fn test_n_counts_all_zeros() {
+        let mut stats = OnlineStats::new();
+        stats.extend(vec![0.0, 0.0, 0.0]);
+
+        let (neg, zero, pos) = stats.n_counts();
+        assert_eq!(neg, 0);
+        assert_eq!(zero, 3);
+        assert_eq!(pos, 0);
+    }
+
+    #[test]
+    fn test_n_counts_with_merge() {
+        let mut stats1 = OnlineStats::new();
+        stats1.extend(vec![-2, 0, 3]);
+
+        let mut stats2 = OnlineStats::new();
+        stats2.extend(vec![-1, 5, 7]);
+
+        stats1.merge(stats2);
+
+        let (neg, zero, pos) = stats1.n_counts();
+        assert_eq!(neg, 2, "Should have 2 negative values after merge");
+        assert_eq!(zero, 1, "Should have 1 zero value after merge");
+        assert_eq!(pos, 3, "Should have 3 positive values after merge");
+    }
+
+    #[test]
+    fn test_n_counts_empty() {
+        let stats = OnlineStats::new();
+
+        let (neg, zero, pos) = stats.n_counts();
+        assert_eq!(neg, 0);
+        assert_eq!(zero, 0);
+        assert_eq!(pos, 0);
+    }
+
+    #[test]
+    fn test_n_counts_negative_zero() {
+        let mut stats = OnlineStats::new();
+        // -0.0 and +0.0 are distinguished by their sign bit
+        // -0.0 is counted as negative, +0.0 is counted as zero
+        stats.extend(vec![-0.0f64, 0.0]);
+
+        let (neg, zero, pos) = stats.n_counts();
+        assert_eq!(neg, 1, "-0.0 has negative sign bit");
+        assert_eq!(zero, 1, "+0.0 is zero");
+        assert_eq!(pos, 0);
+    }
+
+    #[test]
+    fn test_n_counts_floats_boundary() {
+        let mut stats = OnlineStats::new();
+        // Test with very small positive and negative numbers
+        stats.extend(vec![-0.0001f64, 0.0, 0.0001]);
+
+        let (neg, zero, pos) = stats.n_counts();
+        assert_eq!(neg, 1);
+        assert_eq!(zero, 1);
+        assert_eq!(pos, 1);
     }
 }
