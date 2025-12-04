@@ -38,27 +38,24 @@ where
 /// Online state for computing mean, variance and standard deviation.
 ///
 /// Optimized memory layout for better cache performance:
-/// - 64-byte alignment for cache line efficiency
 /// - Grouped related fields together
-/// - Uses bit flags to reduce padding overhead
 #[allow(clippy::unsafe_derive_deserialize)]
 #[derive(Clone, Copy, Serialize, Deserialize, PartialEq)]
-#[repr(C, align(64))]
 pub struct OnlineStats {
-    // Core statistics (40 bytes)
-    size: u64,          // 8 bytes
-    mean: f64,          // 8 bytes
-    q: f64,             // 8 bytes
-    harmonic_sum: f64,  // 8 bytes
-    geometric_sum: f64, // 8 bytes
+    // Hot path - always accessed together (24 bytes)
+    size: u64, // 8 bytes - always accessed
+    mean: f64, // 8 bytes - always accessed
+    q: f64,    // 8 bytes - always accessed
 
-    // flags (2 bytes)
-    has_zero: bool,     // 1 byte
-    has_negative: bool, // 1 byte
-    hg_sums: bool,      // 1 byte
+    // Warm path - fast path for positive numbers (25 bytes)
+    hg_sums: bool,      // 1 byte - checked before sums
+    harmonic_sum: f64,  // 8 bytes - warm path
+    geometric_sum: f64, // 8 bytes - warm path
+    n_positive: u64,    // 8 bytes - warm path
 
-    // Padding to reach 64 bytes for cache alignment
-    _padding: [u8; 21], // 21 bytes padding
+    // Cold path - slow path for zeros/negatives (16 bytes)
+    n_zero: u64,     // 8 bytes - cold path
+    n_negative: u64, // 8 bytes - cold path
 }
 
 impl OnlineStats {
@@ -102,7 +99,7 @@ impl OnlineStats {
     /// Return the current harmonic mean.
     #[must_use]
     pub fn harmonic_mean(&self) -> f64 {
-        if self.is_empty() || self.has_zero || self.has_negative {
+        if self.is_empty() || self.n_zero > 0 || self.n_negative > 0 {
             f64::NAN
         } else {
             (self.size as f64) / self.harmonic_sum
@@ -113,16 +110,22 @@ impl OnlineStats {
     #[must_use]
     pub fn geometric_mean(&self) -> f64 {
         if self.is_empty()
-            || self.has_negative
+            || self.n_negative > 0
             || self.geometric_sum.is_infinite()
             || self.geometric_sum.is_nan()
         {
             f64::NAN
-        } else if self.has_zero {
+        } else if self.n_zero > 0 {
             0.0
         } else {
             (self.geometric_sum / (self.size as f64)).exp()
         }
+    }
+
+    /// Return the number of negative, zero and positive counts.
+    #[must_use]
+    pub const fn n_counts(&self) -> (u64, u64, u64) {
+        (self.n_negative, self.n_zero, self.n_positive)
     }
 
     // TODO: Calculate kurtosis
@@ -152,17 +155,20 @@ impl OnlineStats {
             self.harmonic_sum = (1.0 / sample).mul_add(1.0, self.harmonic_sum);
             // use FMA. equivalent to: self.geometric_sum += ln(sample)
             self.geometric_sum = sample.ln().mul_add(1.0, self.geometric_sum);
+            self.n_positive += 1;
             return;
         }
 
         // Handle special cases (zero and negative numbers)
         if sample <= 0.0 {
             if sample.is_sign_negative() {
-                self.has_negative = true;
+                self.n_negative += 1;
             } else {
-                self.has_zero = true;
+                self.n_zero += 1;
             }
-            self.hg_sums = !self.has_negative && !self.has_zero;
+            self.hg_sums = self.n_negative == 0 && self.n_zero == 0;
+        } else {
+            self.n_positive += 1;
         }
     }
 
@@ -179,16 +185,19 @@ impl OnlineStats {
         if sample > 0.0 && self.hg_sums {
             self.harmonic_sum = (1.0 / sample).mul_add(1.0, self.harmonic_sum);
             self.geometric_sum = sample.ln().mul_add(1.0, self.geometric_sum);
+            self.n_positive += 1;
             return;
         }
 
         if sample <= 0.0 {
             if sample.is_sign_negative() {
-                self.has_negative = true;
+                self.n_negative += 1;
             } else {
-                self.has_zero = true;
+                self.n_zero += 1;
             }
-            self.hg_sums = !self.has_negative && !self.has_zero;
+            self.hg_sums = self.n_negative == 0 && self.n_zero == 0;
+        } else {
+            self.n_positive += 1;
         }
     }
 
@@ -240,8 +249,9 @@ impl Commute for OnlineStats {
         self.harmonic_sum += v.harmonic_sum;
         self.geometric_sum += v.geometric_sum;
 
-        self.has_zero |= v.has_zero;
-        self.has_negative |= v.has_negative;
+        self.n_zero += v.n_zero;
+        self.n_negative += v.n_negative;
+        self.n_positive += v.n_positive;
     }
 }
 
@@ -253,10 +263,10 @@ impl Default for OnlineStats {
             q: 0.0,
             harmonic_sum: 0.0,
             geometric_sum: 0.0,
-            has_zero: false,
-            has_negative: false,
+            n_zero: 0,
+            n_negative: 0,
+            n_positive: 0,
             hg_sums: true,
-            _padding: [0; 21],
         }
     }
 }
