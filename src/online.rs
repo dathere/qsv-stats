@@ -123,6 +123,25 @@ impl OnlineStats {
     }
 
     /// Return the number of negative, zero and positive counts.
+    ///
+    /// Returns a tuple `(negative_count, zero_count, positive_count)` where:
+    /// - `negative_count`: number of values less than 0
+    /// - `zero_count`: number of values equal to 0 (including +0.0 but not -0.0)
+    /// - `positive_count`: number of values greater than 0
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use stats::OnlineStats;
+    ///
+    /// let mut stats = OnlineStats::new();
+    /// stats.extend(vec![-2, -1, 0, 0, 1, 2, 3]);
+    ///
+    /// let (neg, zero, pos) = stats.n_counts();
+    /// assert_eq!(neg, 2);   // -2, -1
+    /// assert_eq!(zero, 2);  // 0, 0
+    /// assert_eq!(pos, 3);   // 1, 2, 3
+    /// ```
     #[must_use]
     pub const fn n_counts(&self) -> (u64, u64, u64) {
         (self.n_negative, self.n_zero, self.n_positive)
@@ -588,5 +607,102 @@ mod test {
         // Mapped iterator
         let result = mean((1..=5).map(|x| x * 2));
         assert!((result - 6.0).abs() < 1e-10);
+    }
+
+    // Tests for n_counts functionality
+
+    #[test]
+    fn test_n_counts_basic() {
+        let mut stats = OnlineStats::new();
+        stats.extend(vec![-5, -3, 0, 0, 2, 4, 6]);
+
+        let (neg, zero, pos) = stats.n_counts();
+        assert_eq!(neg, 2, "Should have 2 negative values");
+        assert_eq!(zero, 2, "Should have 2 zero values");
+        assert_eq!(pos, 3, "Should have 3 positive values");
+    }
+
+    #[test]
+    fn test_n_counts_all_positive() {
+        let mut stats = OnlineStats::new();
+        stats.extend(vec![1.0, 2.0, 3.0, 4.0]);
+
+        let (neg, zero, pos) = stats.n_counts();
+        assert_eq!(neg, 0);
+        assert_eq!(zero, 0);
+        assert_eq!(pos, 4);
+    }
+
+    #[test]
+    fn test_n_counts_all_negative() {
+        let mut stats = OnlineStats::new();
+        stats.extend(vec![-1.0, -2.0, -3.0]);
+
+        let (neg, zero, pos) = stats.n_counts();
+        assert_eq!(neg, 3);
+        assert_eq!(zero, 0);
+        assert_eq!(pos, 0);
+    }
+
+    #[test]
+    fn test_n_counts_all_zeros() {
+        let mut stats = OnlineStats::new();
+        stats.extend(vec![0.0, 0.0, 0.0]);
+
+        let (neg, zero, pos) = stats.n_counts();
+        assert_eq!(neg, 0);
+        assert_eq!(zero, 3);
+        assert_eq!(pos, 0);
+    }
+
+    #[test]
+    fn test_n_counts_with_merge() {
+        let mut stats1 = OnlineStats::new();
+        stats1.extend(vec![-2, 0, 3]);
+
+        let mut stats2 = OnlineStats::new();
+        stats2.extend(vec![-1, 5, 7]);
+
+        stats1.merge(stats2);
+
+        let (neg, zero, pos) = stats1.n_counts();
+        assert_eq!(neg, 2, "Should have 2 negative values after merge");
+        assert_eq!(zero, 1, "Should have 1 zero value after merge");
+        assert_eq!(pos, 3, "Should have 3 positive values after merge");
+    }
+
+    #[test]
+    fn test_n_counts_empty() {
+        let stats = OnlineStats::new();
+
+        let (neg, zero, pos) = stats.n_counts();
+        assert_eq!(neg, 0);
+        assert_eq!(zero, 0);
+        assert_eq!(pos, 0);
+    }
+
+    #[test]
+    fn test_n_counts_negative_zero() {
+        let mut stats = OnlineStats::new();
+        // -0.0 is counted as negative per IEEE 754 (has negative sign bit)
+        // +0.0 is counted as zero
+        stats.extend(vec![-0.0f64, 0.0]);
+
+        let (neg, zero, pos) = stats.n_counts();
+        assert_eq!(neg, 1, "-0.0 has negative sign bit");
+        assert_eq!(zero, 1, "+0.0 is zero");
+        assert_eq!(pos, 0);
+    }
+
+    #[test]
+    fn test_n_counts_floats_boundary() {
+        let mut stats = OnlineStats::new();
+        // Test with very small positive and negative numbers
+        stats.extend(vec![-0.0001f64, 0.0, 0.0001]);
+
+        let (neg, zero, pos) = stats.n_counts();
+        assert_eq!(neg, 1);
+        assert_eq!(zero, 1);
+        assert_eq!(pos, 1);
     }
 }
