@@ -273,12 +273,12 @@ impl<T: Eq + Hash> Extend<T> for Frequencies<T> {
     fn extend<I: IntoIterator<Item = T>>(&mut self, it: I) {
         let iter = it.into_iter();
         // Reserve capacity if size hint is available and reliable
-        if let (lower, Some(upper)) = iter.size_hint() {
-            if lower == upper {
-                // Exact size known - reserve capacity for new entries
-                // We don't know how many will be new vs existing, so reserve conservatively
-                self.data.reserve(lower.saturating_sub(self.data.len()));
-            }
+        if let (lower, Some(upper)) = iter.size_hint()
+            && lower == upper
+        {
+            // Exact size known - reserve capacity for new entries
+            // We don't know how many will be new vs existing, so reserve conservatively
+            self.data.reserve(lower.saturating_sub(self.data.len()));
         }
         for sample in iter {
             self.add(sample);

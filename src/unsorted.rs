@@ -975,7 +975,8 @@ impl<T: PartialOrd + PartialEq + Clone> Unsorted<T> {
         if use_parallel {
             // Parallel processing using chunks
             // Process chunks in parallel, returning (count, first_elem, last_elem) for each
-            let chunk_info: Vec<(u64, Option<&Partial<T>>, Option<&Partial<T>>)> = self
+            type ChunkInfo<'a, T> = Vec<(u64, Option<&'a Partial<T>>, Option<&'a Partial<T>>)>;
+            let chunk_info: ChunkInfo<'_, T> = self
                 .data
                 .par_chunks(CHUNK_SIZE)
                 .map(|chunk| {
@@ -1788,10 +1789,10 @@ mod bench {
                     let mut v = Vec::with_capacity(size);
                     let chunk_size = size / 100;
                     for i in 0..100 {
-                        v.extend(std::iter::repeat(i as i32).take(chunk_size));
+                        v.extend(std::iter::repeat_n(i, chunk_size));
                     }
                     // Add any remaining elements
-                    v.extend(std::iter::repeat(0).take(size - v.len()));
+                    v.extend(std::iter::repeat_n(0, size - v.len()));
                     v
                 }),
             ];
