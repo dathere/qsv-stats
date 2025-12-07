@@ -53,36 +53,16 @@ impl<T: Eq + Hash> Frequencies<T> {
         self.len() as u64
     }
 
-    /// Returns the mode if one exists.
-    /// Note that there is also a `modes()` function that returns all
-    /// modes (plural) in `unsorted::modes()`. It returns all modes
-    /// with the same frequency.
-    #[inline]
-    #[must_use]
-    pub fn mode(&self) -> Option<&T> {
-        let (counts, _) = self.most_frequent();
-        if counts.is_empty() {
-            return None;
-        }
-        // If there is a tie for the most frequent element, return None.
-        if counts.len() >= 2 && counts[0].1 == counts[1].1 {
-            None
-        } else {
-            Some(counts[0].0)
-        }
-    }
-
     /// Return a `Vec` of elements, their corresponding counts in
     /// descending order, and the total count.
     #[inline]
     #[must_use]
     pub fn most_frequent(&self) -> (Vec<(&T, u64)>, u64) {
         let len = self.data.len();
+        let total_count: u64 = self.data.values().sum();
         let mut counts = Vec::with_capacity(len);
-        let mut total_count = 0_u64;
 
         for (k, &v) in &self.data {
-            total_count += v;
             counts.push((k, v));
         }
         counts.sort_unstable_by(|&(_, c1), &(_, c2)| c2.cmp(&c1));
@@ -94,15 +74,13 @@ impl<T: Eq + Hash> Frequencies<T> {
     #[inline]
     #[must_use]
     pub fn least_frequent(&self) -> (Vec<(&T, u64)>, u64) {
-        let mut total_count = 0_u64;
-        let mut counts: Vec<_> = self
-            .data
-            .iter()
-            .map(|(k, &v)| {
-                total_count += v;
-                (k, v)
-            })
-            .collect();
+        let len = self.data.len();
+        let total_count: u64 = self.data.values().sum();
+        let mut counts = Vec::with_capacity(len);
+
+        for (k, &v) in &self.data {
+            counts.push((k, v));
+        }
         counts.sort_unstable_by(|&(_, c1), &(_, c2)| c1.cmp(&c2));
         (counts, total_count)
     }
@@ -116,15 +94,13 @@ impl<T: Eq + Hash> Frequencies<T> {
         for<'a> (&'a T, u64): Send,
         T: Ord,
     {
-        let mut total_count = 0_u64;
-        let mut counts: Vec<_> = self
-            .data
-            .iter()
-            .map(|(k, &v)| {
-                total_count += v;
-                (k, v)
-            })
-            .collect();
+        let len = self.data.len();
+        let total_count: u64 = self.data.values().sum();
+        let mut counts = Vec::with_capacity(len);
+
+        for (k, &v) in &self.data {
+            counts.push((k, v));
+        }
         // sort by counts asc/desc
         // if counts are equal, sort by values lexicographically
         // We need to do this because otherwise the values are not guaranteed to be in order for equal counts
@@ -295,7 +271,16 @@ impl<T: Eq + Hash> FromIterator<T> for Frequencies<T> {
 impl<T: Eq + Hash> Extend<T> for Frequencies<T> {
     #[inline]
     fn extend<I: IntoIterator<Item = T>>(&mut self, it: I) {
-        for sample in it {
+        let iter = it.into_iter();
+        // Reserve capacity if size hint is available and reliable
+        if let (lower, Some(upper)) = iter.size_hint() {
+            if lower == upper {
+                // Exact size known - reserve capacity for new entries
+                // We don't know how many will be new vs existing, so reserve conservatively
+                self.data.reserve(lower.saturating_sub(self.data.len()));
+            }
+        }
+        for sample in iter {
             self.add(sample);
         }
     }
