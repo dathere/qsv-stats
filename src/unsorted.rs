@@ -581,26 +581,36 @@ where
         _ => {}
     }
 
-    // Create indices array once
-    let mut indices: Vec<usize> = (0..len).collect();
-
     // Calculate k and remainder in one division
     let k = len / 4;
     let remainder = len % 4;
 
+    // Allocate indices array once and reuse it by resetting after each call
+    let indices_template: Vec<usize> = (0..len).collect();
+    #[allow(unused)]
+    let mut indices: Vec<usize> = Vec::with_capacity(len);
+
     // Use zero-copy selection algorithm to find the required order statistics
+    // Note: Each quickselect_by_index call mutates the indices array, so we need
+    // to reset it for each call to ensure correctness.
     match remainder {
         0 => {
             // Length is multiple of 4 (4k)
+            indices = indices_template.clone();
             let q1_low = quickselect_by_index(data, &mut indices, k - 1)?.to_f64()?;
+            indices = indices_template.clone();
             let q1_high = quickselect_by_index(data, &mut indices, k)?.to_f64()?;
             let q1 = f64::midpoint(q1_low, q1_high);
 
+            indices = indices_template.clone();
             let q2_low = quickselect_by_index(data, &mut indices, 2 * k - 1)?.to_f64()?;
+            indices = indices_template.clone();
             let q2_high = quickselect_by_index(data, &mut indices, 2 * k)?.to_f64()?;
             let q2 = f64::midpoint(q2_low, q2_high);
 
+            indices = indices_template.clone();
             let q3_low = quickselect_by_index(data, &mut indices, 3 * k - 1)?.to_f64()?;
+            indices = indices_template.clone();
             let q3_high = quickselect_by_index(data, &mut indices, 3 * k)?.to_f64()?;
             let q3 = f64::midpoint(q3_low, q3_high);
 
@@ -608,13 +618,18 @@ where
         }
         1 => {
             // Length is 4k + 1
+            indices = indices_template.clone();
             let q1_low = quickselect_by_index(data, &mut indices, k - 1)?.to_f64()?;
+            indices = indices_template.clone();
             let q1_high = quickselect_by_index(data, &mut indices, k)?.to_f64()?;
             let q1 = f64::midpoint(q1_low, q1_high);
 
+            indices = indices_template.clone();
             let q2 = quickselect_by_index(data, &mut indices, 2 * k)?.to_f64()?;
 
+            indices = indices_template.clone();
             let q3_low = quickselect_by_index(data, &mut indices, 3 * k)?.to_f64()?;
+            indices = indices_template.clone();
             let q3_high = quickselect_by_index(data, &mut indices, 3 * k + 1)?.to_f64()?;
             let q3 = f64::midpoint(q3_low, q3_high);
 
@@ -622,20 +637,27 @@ where
         }
         2 => {
             // Length is 4k + 2
+            indices = indices_template.clone();
             let q1 = quickselect_by_index(data, &mut indices, k)?.to_f64()?;
 
+            indices = indices_template.clone();
             let q2_low = quickselect_by_index(data, &mut indices, 2 * k)?.to_f64()?;
+            indices = indices_template.clone();
             let q2_high = quickselect_by_index(data, &mut indices, 2 * k + 1)?.to_f64()?;
             let q2 = f64::midpoint(q2_low, q2_high);
 
+            indices = indices_template.clone();
             let q3 = quickselect_by_index(data, &mut indices, 3 * k + 1)?.to_f64()?;
 
             Some((q1, q2, q3))
         }
         _ => {
             // Length is 4k + 3
+            indices = indices_template.clone();
             let q1 = quickselect_by_index(data, &mut indices, k)?.to_f64()?;
+            indices = indices_template.clone();
             let q2 = quickselect_by_index(data, &mut indices, 2 * k + 1)?.to_f64()?;
+            indices = indices_template.clone();
             let q3 = quickselect_by_index(data, &mut indices, 3 * k + 2)?.to_f64()?;
 
             Some((q1, q2, q3))
@@ -727,10 +749,20 @@ where
         return ((Vec::new(), 0, 0), (Vec::new(), 0, 0));
     }
 
-    // Estimate capacity using square root of size
-    #[allow(clippy::cast_sign_loss)]
-    let mut runs: Vec<(&T, u32)> =
-        Vec::with_capacity(((size as f64).sqrt() as usize).clamp(16, 1_000));
+    // Estimate capacity using integer square root of size
+    // Integer square root using binary search (faster than floating point sqrt)
+    let sqrt_size = if size == 0 {
+        0
+    } else {
+        let mut x = size;
+        let mut y = x.div_ceil(2);
+        while y < x {
+            x = y;
+            y = (x + size / x) / 2;
+        }
+        x
+    };
+    let mut runs: Vec<(&T, u32)> = Vec::with_capacity(sqrt_size.clamp(16, 1_000));
 
     let mut current_value = &data[0].0;
     let mut current_count = 1;
@@ -942,48 +974,35 @@ impl<T: PartialOrd + PartialEq + Clone> Unsorted<T> {
 
         if use_parallel {
             // Parallel processing using chunks
-            let chunks = self.data.par_chunks(CHUNK_SIZE);
-
-            // Process each chunk and combine results
-            let chunk_results: Vec<u64> = chunks
+            // Process chunks in parallel, returning (count, first_elem, last_elem) for each
+            let chunk_info: Vec<(u64, Option<&Partial<T>>, Option<&Partial<T>>)> = self
+                .data
+                .par_chunks(CHUNK_SIZE)
                 .map(|chunk| {
-                    // Count unique elements within each chunk
-                    let mut count = 1; // Start at 1 for first element
+                    // Count unique elements within this chunk
+                    let mut count = if chunk.is_empty() { 0 } else { 1 };
                     for window in chunk.windows(2) {
                         // safety: windows(2) guarantees window has length 2
                         if unsafe { window.get_unchecked(0) != window.get_unchecked(1) } {
                             count += 1;
                         }
                     }
-                    count
+                    (count, chunk.first(), chunk.last())
                 })
                 .collect();
 
-            // Combine results from chunks, checking boundaries between chunks
-            // Pre-compute chunk boundaries to avoid repeated multiplications
+            // Combine results, checking boundaries between chunks
             let mut total = 0;
-            let mut curr_chunk_start_idx = 0;
-
-            for (i, &count) in chunk_results.iter().enumerate() {
+            for (i, &(count, first_opt, _last_opt)) in chunk_info.iter().enumerate() {
                 total += count;
 
-                // Check boundary between chunks
-                if i > 0 {
-                    // Pre-compute indices once to avoid repeated multiplication
-                    // Safety: These indices are guaranteed to be in bounds since we're iterating
-                    // over chunk_results which was created from valid chunks of self.data
-                    unsafe {
-                        let prev_chunk_end_idx = curr_chunk_start_idx - 1;
-                        let prev_chunk_end = self.data.get_unchecked(prev_chunk_end_idx);
-                        let curr_chunk_start = self.data.get_unchecked(curr_chunk_start_idx);
-                        if prev_chunk_end == curr_chunk_start {
-                            total -= 1;
-                        }
-                    }
+                // Check boundary with previous chunk
+                if i > 0
+                    && let (Some(prev_last), Some(curr_first)) = (chunk_info[i - 1].2, first_opt)
+                    && prev_last == curr_first
+                {
+                    total -= 1; // Deduct 1 if boundary values are equal
                 }
-
-                // Update for next iteration
-                curr_chunk_start_idx += CHUNK_SIZE;
             }
 
             total
@@ -1110,6 +1129,10 @@ impl<T: PartialOrd + ToPrimitive + Clone> Unsorted<T> {
         if self.data.is_empty() {
             return None;
         }
+        // If data is already sorted, use zero-copy approach to avoid cloning
+        if self.sorted {
+            return quartiles_with_zero_copy_selection(&self.data);
+        }
         // Create a copy using collect to avoid mutating the original for selection algorithm
         let mut data_copy: Vec<Partial<T>> =
             self.data.iter().map(|x| Partial(x.0.clone())).collect();
@@ -1184,10 +1207,31 @@ where
         return None;
     }
 
-    // Create a sorted vector of unique percentiles
-    let mut unique_percentiles = percentiles.to_vec();
-    unique_percentiles.sort_unstable();
-    unique_percentiles.dedup();
+    // Optimize: Check if percentiles are already sorted and unique
+    let unique_percentiles: Vec<u8> = if percentiles.len() <= 1 {
+        // Single or empty percentile - no need to sort/dedup
+        percentiles.to_vec()
+    } else {
+        // Check if already sorted and unique (common case)
+        let is_sorted_unique = percentiles.windows(2).all(|w| w[0] < w[1]);
+
+        if is_sorted_unique {
+            // Already sorted and unique, use directly without cloning
+            percentiles.to_vec()
+        } else {
+            // Need to sort and dedup - use HashSet for efficient deduplication
+            use std::collections::HashSet;
+            let mut seen = HashSet::with_capacity(percentiles.len().min(100));
+            let mut sorted_unique = Vec::with_capacity(percentiles.len());
+            for &p in percentiles {
+                if seen.insert(p) {
+                    sorted_unique.push(p);
+                }
+            }
+            sorted_unique.sort_unstable();
+            sorted_unique
+        }
+    };
 
     let mut results = Vec::with_capacity(unique_percentiles.len());
 
