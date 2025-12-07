@@ -169,27 +169,24 @@ impl OnlineStats {
         // FMA: equivalent to: self.q += delta * (sample - self.mean);
         self.q = delta.mul_add(sample - self.mean, self.q);
 
-        // Optimized path for positive numbers (most common case)
-        if sample > 0.0 && self.hg_sums {
-            // Fast path: compute harmonic & geometric sums directly
-            // use FMA. equivalent to: self.harmonic_sum += 1.0 / sample
-            self.harmonic_sum = (1.0 / sample).mul_add(1.0, self.harmonic_sum);
-            // use FMA. equivalent to: self.geometric_sum += ln(sample)
-            self.geometric_sum = sample.ln().mul_add(1.0, self.geometric_sum);
+        // Handle positive numbers (most common case)
+        if sample > 0.0 {
+            if self.hg_sums {
+                // Fast path: compute harmonic & geometric sums directly
+                // use FMA. equivalent to: self.harmonic_sum += 1.0 / sample
+                self.harmonic_sum = (1.0 / sample).mul_add(1.0, self.harmonic_sum);
+                // use FMA. equivalent to: self.geometric_sum += ln(sample)
+                self.geometric_sum = sample.ln().mul_add(1.0, self.geometric_sum);
+            }
             self.n_positive += 1;
-            return;
-        }
-
-        // Handle special cases (zero and negative numbers)
-        if sample <= 0.0 {
+        } else {
+            // Handle special cases (zero and negative numbers)
             if sample.is_sign_negative() {
                 self.n_negative += 1;
             } else {
                 self.n_zero += 1;
             }
             self.hg_sums = self.n_negative == 0 && self.n_zero == 0;
-        } else {
-            self.n_positive += 1;
         }
     }
 
@@ -203,22 +200,21 @@ impl OnlineStats {
         self.mean = delta.mul_add(1.0 / (self.size as f64), self.mean);
         self.q = delta.mul_add(sample - self.mean, self.q);
 
-        if sample > 0.0 && self.hg_sums {
-            self.harmonic_sum = (1.0 / sample).mul_add(1.0, self.harmonic_sum);
-            self.geometric_sum = sample.ln().mul_add(1.0, self.geometric_sum);
+        // Handle positive numbers (most common case)
+        if sample > 0.0 {
+            if self.hg_sums {
+                self.harmonic_sum = (1.0 / sample).mul_add(1.0, self.harmonic_sum);
+                self.geometric_sum = sample.ln().mul_add(1.0, self.geometric_sum);
+            }
             self.n_positive += 1;
-            return;
-        }
-
-        if sample <= 0.0 {
+        } else {
+            // Handle special cases (zero and negative numbers)
             if sample.is_sign_negative() {
                 self.n_negative += 1;
             } else {
                 self.n_zero += 1;
             }
             self.hg_sums = self.n_negative == 0 && self.n_zero == 0;
-        } else {
-            self.n_positive += 1;
         }
     }
 
@@ -254,7 +250,7 @@ impl Commute for OnlineStats {
         // Taken from: https://en.wikipedia.org/wiki/Standard_deviation#Combining_standard_deviations
         let (s1, s2) = (self.size as f64, v.size as f64);
         let total = s1 + s2;
-        let meandiffsq = (self.mean - v.mean) * (self.mean - v.mean);
+        let meandiffsq = (self.mean - v.mean).powi(2);
 
         self.size += v.size;
 
