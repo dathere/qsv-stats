@@ -596,21 +596,21 @@ where
     match remainder {
         0 => {
             // Length is multiple of 4 (4k)
-            indices = indices_template.clone();
+            indices.clone_from(&indices_template);
             let q1_low = quickselect_by_index(data, &mut indices, k - 1)?.to_f64()?;
-            indices = indices_template.clone();
+            indices.clone_from(&indices_template);
             let q1_high = quickselect_by_index(data, &mut indices, k)?.to_f64()?;
             let q1 = f64::midpoint(q1_low, q1_high);
 
-            indices = indices_template.clone();
+            indices.clone_from(&indices_template);
             let q2_low = quickselect_by_index(data, &mut indices, 2 * k - 1)?.to_f64()?;
-            indices = indices_template.clone();
+            indices.clone_from(&indices_template);
             let q2_high = quickselect_by_index(data, &mut indices, 2 * k)?.to_f64()?;
             let q2 = f64::midpoint(q2_low, q2_high);
 
-            indices = indices_template.clone();
+            indices.clone_from(&indices_template);
             let q3_low = quickselect_by_index(data, &mut indices, 3 * k - 1)?.to_f64()?;
-            indices = indices_template.clone();
+            indices.clone_from(&indices_template);
             let q3_high = quickselect_by_index(data, &mut indices, 3 * k)?.to_f64()?;
             let q3 = f64::midpoint(q3_low, q3_high);
 
@@ -618,18 +618,18 @@ where
         }
         1 => {
             // Length is 4k + 1
-            indices = indices_template.clone();
+            indices.clone_from(&indices_template);
             let q1_low = quickselect_by_index(data, &mut indices, k - 1)?.to_f64()?;
-            indices = indices_template.clone();
+            indices.clone_from(&indices_template);
             let q1_high = quickselect_by_index(data, &mut indices, k)?.to_f64()?;
             let q1 = f64::midpoint(q1_low, q1_high);
 
-            indices = indices_template.clone();
+            indices.clone_from(&indices_template);
             let q2 = quickselect_by_index(data, &mut indices, 2 * k)?.to_f64()?;
 
-            indices = indices_template.clone();
+            indices.clone_from(&indices_template);
             let q3_low = quickselect_by_index(data, &mut indices, 3 * k)?.to_f64()?;
-            indices = indices_template.clone();
+            indices.clone_from(&indices_template);
             let q3_high = quickselect_by_index(data, &mut indices, 3 * k + 1)?.to_f64()?;
             let q3 = f64::midpoint(q3_low, q3_high);
 
@@ -637,27 +637,27 @@ where
         }
         2 => {
             // Length is 4k + 2
-            indices = indices_template.clone();
+            indices.clone_from(&indices_template);
             let q1 = quickselect_by_index(data, &mut indices, k)?.to_f64()?;
 
-            indices = indices_template.clone();
+            indices.clone_from(&indices_template);
             let q2_low = quickselect_by_index(data, &mut indices, 2 * k)?.to_f64()?;
-            indices = indices_template.clone();
+            indices.clone_from(&indices_template);
             let q2_high = quickselect_by_index(data, &mut indices, 2 * k + 1)?.to_f64()?;
             let q2 = f64::midpoint(q2_low, q2_high);
 
-            indices = indices_template.clone();
+            indices.clone_from(&indices_template);
             let q3 = quickselect_by_index(data, &mut indices, 3 * k + 1)?.to_f64()?;
 
             Some((q1, q2, q3))
         }
         _ => {
             // Length is 4k + 3
-            indices = indices_template.clone();
+            indices.clone_from(&indices_template);
             let q1 = quickselect_by_index(data, &mut indices, k)?.to_f64()?;
-            indices = indices_template.clone();
+            indices.clone_from(&indices_template);
             let q2 = quickselect_by_index(data, &mut indices, 2 * k + 1)?.to_f64()?;
-            indices = indices_template.clone();
+            indices.clone_from(&indices_template);
             let q3 = quickselect_by_index(data, &mut indices, 3 * k + 2)?.to_f64()?;
 
             Some((q1, q2, q3))
@@ -758,7 +758,7 @@ where
         let mut y = x.div_ceil(2);
         while y < x {
             x = y;
-            y = (x + size / x) / 2;
+            y = usize::midpoint(x, size / x);
         }
         x
     };
@@ -981,7 +981,7 @@ impl<T: PartialOrd + PartialEq + Clone> Unsorted<T> {
                 .par_chunks(CHUNK_SIZE)
                 .map(|chunk| {
                     // Count unique elements within this chunk
-                    let mut count = if chunk.is_empty() { 0 } else { 1 };
+                    let mut count = u64::from(!chunk.is_empty());
                     for window in chunk.windows(2) {
                         // safety: windows(2) guarantees window has length 2
                         if unsafe { window.get_unchecked(0) != window.get_unchecked(1) } {
