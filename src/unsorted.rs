@@ -1,5 +1,5 @@
 use num_traits::ToPrimitive;
-use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
+use rayon::iter::{IndexedParallelIterator, IntoParallelRefIterator, ParallelIterator};
 use rayon::prelude::ParallelSlice;
 use rayon::slice::ParallelSliceMut;
 
@@ -110,6 +110,65 @@ where
     (antimodes_result, antimodes_count, antimodes_occurrences)
 }
 
+/// Compute the Gini Coefficient on a stream of data.
+///
+/// The Gini Coefficient measures inequality in a distribution, ranging from 0 (perfect equality)
+/// to 1 (perfect inequality).
+///
+/// (This has time complexity `O(n log n)` and space complexity `O(n)`.)
+pub fn gini<I>(it: I) -> Option<f64>
+where
+    I: Iterator,
+    <I as Iterator>::Item: PartialOrd + ToPrimitive + Sync,
+{
+    it.collect::<Unsorted<_>>().gini()
+}
+
+/// Compute the kurtosis (excess kurtosis) on a stream of data.
+///
+/// Kurtosis measures the "tailedness" of a distribution. Excess kurtosis is kurtosis - 3,
+/// where 0 indicates a normal distribution, positive values indicate heavy tails, and
+/// negative values indicate light tails.
+///
+/// (This has time complexity `O(n log n)` and space complexity `O(n)`.)
+pub fn kurtosis<I>(it: I) -> Option<f64>
+where
+    I: Iterator,
+    <I as Iterator>::Item: PartialOrd + ToPrimitive + Sync,
+{
+    it.collect::<Unsorted<_>>().kurtosis()
+}
+
+/// Compute the percentile rank of a value on a stream of data.
+///
+/// Returns the percentile rank (0-100) of the given value in the distribution.
+/// If the value is less than all values, returns 0.0. If greater than all, returns 100.0.
+///
+/// (This has time complexity `O(n log n)` and space complexity `O(n)`.)
+pub fn percentile_rank<I, V>(it: I, value: V) -> Option<f64>
+where
+    I: Iterator,
+    <I as Iterator>::Item: PartialOrd + ToPrimitive + Sync,
+    V: PartialOrd + ToPrimitive,
+{
+    it.collect::<Unsorted<_>>().percentile_rank(value)
+}
+
+/// Compute the Atkinson Index on a stream of data.
+///
+/// The Atkinson Index measures inequality with an inequality aversion parameter ε.
+/// It ranges from 0 (perfect equality) to 1 (perfect inequality).
+/// Higher ε values give more weight to inequality at the lower end of the distribution.
+///
+/// (This has time complexity `O(n log n)` and space complexity `O(n)`.)
+pub fn atkinson<I>(it: I, epsilon: f64) -> Option<f64>
+where
+    I: Iterator,
+    <I as Iterator>::Item: PartialOrd + ToPrimitive + Sync,
+{
+    it.collect::<Unsorted<_>>().atkinson(epsilon)
+}
+
 fn median_on_sorted<T>(data: &[T]) -> Option<f64>
 where
     T: PartialOrd + ToPrimitive,
@@ -165,6 +224,311 @@ where
         abs_diff_vec.par_sort_unstable_by(|a, b| unsafe { a.partial_cmp(b).unwrap_unchecked() });
     }
     median_on_sorted(&abs_diff_vec)
+}
+
+fn gini_on_sorted<T>(data: &[Partial<T>]) -> Option<f64>
+where
+    T: Sync + PartialOrd + ToPrimitive,
+{
+    let len = data.len();
+
+    // Early return for empty data
+    if len == 0 {
+        return None;
+    }
+
+    // Single element case: perfect equality, Gini = 0
+    if len == 1 {
+        return Some(0.0);
+    }
+
+    // Use adaptive parallel processing based on data size
+    let (sum, weighted_sum) = if len < PARALLEL_THRESHOLD {
+        // Sequential processing for small datasets
+        let mut sum = 0.0;
+        let mut weighted_sum = 0.0;
+
+        for (i, x) in data.iter().enumerate() {
+            let val = x.0.to_f64()?;
+            sum += val;
+            weighted_sum += (i + 1) as f64 * val;
+        }
+
+        (sum, weighted_sum)
+    } else {
+        // Parallel processing for large datasets
+        // Convert to f64 and compute sum in parallel
+        let sum: f64 = data
+            .par_iter()
+            .map(|x| unsafe { x.0.to_f64().unwrap_unchecked() })
+            .sum();
+
+        // Compute weighted sum in parallel using enumerate to get indices
+        let weighted_sum: f64 = data
+            .par_iter()
+            .enumerate()
+            .map(|(i, x)| {
+                let val = unsafe { x.0.to_f64().unwrap_unchecked() };
+                (i + 1) as f64 * val
+            })
+            .sum();
+
+        (sum, weighted_sum)
+    };
+
+    // If sum is zero, Gini is undefined
+    if sum == 0.0 {
+        return None;
+    }
+
+    // Compute Gini coefficient using the formula:
+    // G = (2 * Σ(i * y_i)) / (n * Σ(y_i)) - (n + 1) / n
+    // where i is 1-indexed rank and y_i are sorted values
+    let n = len as f64;
+    let gini = (2.0 * weighted_sum) / (n * sum) - (n + 1.0) / n;
+
+    Some(gini)
+}
+
+fn kurtosis_on_sorted<T>(data: &[Partial<T>]) -> Option<f64>
+where
+    T: Sync + PartialOrd + ToPrimitive,
+{
+    let len = data.len();
+
+    // Need at least 4 elements for meaningful kurtosis
+    if len < 4 {
+        return None;
+    }
+
+    // Compute mean first
+    let sum: f64 = if len < PARALLEL_THRESHOLD {
+        let mut sum = 0.0;
+        for x in data {
+            sum += x.0.to_f64()?;
+        }
+        sum
+    } else {
+        data.par_iter()
+            .map(|x| unsafe { x.0.to_f64().unwrap_unchecked() })
+            .sum()
+    };
+
+    let mean = sum / len as f64;
+
+    // Compute variance and sum of fourth powers
+    let (variance_sum, fourth_power_sum) = if len < PARALLEL_THRESHOLD {
+        let mut variance_sum = 0.0;
+        let mut fourth_power_sum = 0.0;
+
+        for x in data {
+            let val = x.0.to_f64()?;
+            let diff = val - mean;
+            let diff_sq = diff * diff;
+            variance_sum += diff_sq;
+            fourth_power_sum += diff_sq * diff_sq;
+        }
+
+        (variance_sum, fourth_power_sum)
+    } else {
+        let variance_sum: f64 = data
+            .par_iter()
+            .map(|x| {
+                let val = unsafe { x.0.to_f64().unwrap_unchecked() };
+                let diff = val - mean;
+                diff * diff
+            })
+            .sum();
+
+        let fourth_power_sum: f64 = data
+            .par_iter()
+            .map(|x| {
+                let val = unsafe { x.0.to_f64().unwrap_unchecked() };
+                let diff = val - mean;
+                let diff_sq = diff * diff;
+                diff_sq * diff_sq
+            })
+            .sum();
+
+        (variance_sum, fourth_power_sum)
+    };
+
+    let variance = variance_sum / len as f64;
+
+    // If variance is zero, all values are the same, kurtosis is undefined
+    if variance == 0.0 {
+        return None;
+    }
+
+    let n = len as f64;
+    let variance_sq = variance * variance;
+
+    // Sample excess kurtosis formula:
+    // kurtosis = (n(n+1) * Σ((x_i - mean)⁴)) / ((n-1)(n-2)(n-3) * variance²) - 3(n-1)²/((n-2)(n-3))
+    let kurtosis = (n * (n + 1.0) * fourth_power_sum)
+        / ((n - 1.0) * (n - 2.0) * (n - 3.0) * variance_sq)
+        - 3.0 * (n - 1.0) * (n - 1.0) / ((n - 2.0) * (n - 3.0));
+
+    Some(kurtosis)
+}
+
+fn percentile_rank_on_sorted<T, V>(data: &[Partial<T>], value: &V) -> Option<f64>
+where
+    T: PartialOrd + ToPrimitive,
+    V: PartialOrd + ToPrimitive,
+{
+    let len = data.len();
+
+    if len == 0 {
+        return None;
+    }
+
+    let value_f64 = value.to_f64()?;
+
+    // Binary search to find the position where value would be inserted
+    // This gives us the number of values <= value
+    let count_leq = data.binary_search_by(|x| {
+        x.0.to_f64()
+            .unwrap_or(f64::NAN)
+            .partial_cmp(&value_f64)
+            .unwrap_or(std::cmp::Ordering::Less)
+    });
+
+    let count = match count_leq {
+        Ok(idx) => {
+            // Value found at idx, but we need to count all equal values
+            let mut count = idx + 1;
+            // Count all equal values after idx
+            for x in data.iter().skip(idx + 1) {
+                if let Some(x_val) = x.0.to_f64() {
+                    if (x_val - value_f64).abs() < 1e-9 {
+                        count += 1;
+                    } else {
+                        break;
+                    }
+                } else {
+                    break;
+                }
+            }
+            count
+        }
+        Err(idx) => idx, // Number of values less than value
+    };
+
+    // Percentile rank = (count / n) * 100
+    Some((count as f64 / len as f64) * 100.0)
+}
+
+fn atkinson_on_sorted<T>(data: &[Partial<T>], epsilon: f64) -> Option<f64>
+where
+    T: Sync + PartialOrd + ToPrimitive,
+{
+    let len = data.len();
+
+    // Early return for empty data
+    if len == 0 {
+        return None;
+    }
+
+    // Single element case: perfect equality, Atkinson = 0
+    if len == 1 {
+        return Some(0.0);
+    }
+
+    // Epsilon must be non-negative
+    if epsilon < 0.0 {
+        return None;
+    }
+
+    // Compute mean
+    let sum: f64 = if len < PARALLEL_THRESHOLD {
+        let mut sum = 0.0;
+        for x in data {
+            sum += x.0.to_f64()?;
+        }
+        sum
+    } else {
+        data.par_iter()
+            .map(|x| unsafe { x.0.to_f64().unwrap_unchecked() })
+            .sum()
+    };
+
+    let mean = sum / len as f64;
+
+    // If mean is zero, Atkinson is undefined
+    if mean == 0.0 {
+        return None;
+    }
+
+    // Handle special case: epsilon = 1 (uses geometric mean)
+    if (epsilon - 1.0).abs() < 1e-10 {
+        // A_1 = 1 - (geometric_mean / mean)
+        let geometric_sum: f64 = if len < PARALLEL_THRESHOLD {
+            let mut sum = 0.0;
+            for x in data {
+                let val = x.0.to_f64()?;
+                if val <= 0.0 {
+                    // Geometric mean undefined for non-positive values
+                    return None;
+                }
+                sum += val.ln();
+            }
+            sum
+        } else {
+            data.par_iter()
+                .map(|x| {
+                    let val = unsafe { x.0.to_f64().unwrap_unchecked() };
+                    if val <= 0.0 {
+                        return f64::NAN;
+                    }
+                    val.ln()
+                })
+                .sum()
+        };
+
+        if geometric_sum.is_nan() {
+            return None;
+        }
+
+        let geometric_mean = (geometric_sum / len as f64).exp();
+        return Some(1.0 - geometric_mean / mean);
+    }
+
+    // General case: epsilon != 1
+    // A_ε = 1 - (1/n * Σ((x_i/mean)^(1-ε)))^(1/(1-ε))
+    let exponent = 1.0 - epsilon;
+
+    let sum_powered: f64 = if len < PARALLEL_THRESHOLD {
+        let mut sum = 0.0;
+        for x in data {
+            let val = x.0.to_f64()?;
+            if val < 0.0 {
+                // Negative values with non-integer exponent are undefined
+                return None;
+            }
+            let ratio = val / mean;
+            sum += ratio.powf(exponent);
+        }
+        sum
+    } else {
+        data.par_iter()
+            .map(|x| {
+                let val = unsafe { x.0.to_f64().unwrap_unchecked() };
+                if val < 0.0 {
+                    return f64::NAN;
+                }
+                let ratio = val / mean;
+                ratio.powf(exponent)
+            })
+            .sum()
+    };
+
+    if sum_powered.is_nan() || sum_powered <= 0.0 {
+        return None;
+    }
+
+    let atkinson = 1.0 - (sum_powered / len as f64).powf(1.0 / exponent);
+    Some(atkinson)
 }
 
 /// Selection algorithm to find the k-th smallest element in O(n) average time.
@@ -1113,6 +1477,78 @@ impl<T: PartialOrd + ToPrimitive> Unsorted<T> {
     }
 }
 
+impl<T: PartialOrd + ToPrimitive + Sync> Unsorted<T> {
+    /// Returns the Gini Coefficient of the data.
+    ///
+    /// The Gini Coefficient measures inequality in a distribution, ranging from 0 (perfect equality)
+    /// to 1 (perfect inequality). This method sorts the data first and then computes the Gini coefficient.
+    /// Time complexity: O(n log n)
+    #[inline]
+    pub fn gini(&mut self) -> Option<f64> {
+        if self.data.is_empty() {
+            return None;
+        }
+        self.sort();
+        gini_on_sorted(&self.data)
+    }
+
+    /// Returns the kurtosis (excess kurtosis) of the data.
+    ///
+    /// Kurtosis measures the "tailedness" of a distribution. Excess kurtosis is kurtosis - 3,
+    /// where 0 indicates a normal distribution, positive values indicate heavy tails, and
+    /// negative values indicate light tails. This method sorts the data first and then computes kurtosis.
+    /// Time complexity: O(n log n)
+    #[inline]
+    pub fn kurtosis(&mut self) -> Option<f64> {
+        if self.data.is_empty() {
+            return None;
+        }
+        self.sort();
+        kurtosis_on_sorted(&self.data)
+    }
+
+    /// Returns the percentile rank of a value in the data.
+    ///
+    /// Returns the percentile rank (0-100) of the given value. If the value is less than all
+    /// values, returns 0.0. If greater than all, returns 100.0.
+    /// This method sorts the data first and then computes the percentile rank.
+    /// Time complexity: O(n log n)
+    #[inline]
+    pub fn percentile_rank<V>(&mut self, value: V) -> Option<f64>
+    where
+        V: PartialOrd + ToPrimitive,
+    {
+        if self.data.is_empty() {
+            return None;
+        }
+        self.sort();
+        percentile_rank_on_sorted(&self.data, &value)
+    }
+
+    /// Returns the Atkinson Index of the data.
+    ///
+    /// The Atkinson Index measures inequality with an inequality aversion parameter ε.
+    /// It ranges from 0 (perfect equality) to 1 (perfect inequality).
+    /// Higher ε values give more weight to inequality at the lower end of the distribution.
+    /// This method sorts the data first and then computes the Atkinson index.
+    /// Time complexity: O(n log n)
+    ///
+    /// # Arguments
+    /// * `epsilon` - Inequality aversion parameter (must be >= 0). Common values:
+    ///   - 0.0: No inequality aversion (returns 0)
+    ///   - 0.5: Moderate aversion
+    ///   - 1.0: Uses geometric mean (special case)
+    ///   - 2.0: High aversion
+    #[inline]
+    pub fn atkinson(&mut self, epsilon: f64) -> Option<f64> {
+        if self.data.is_empty() {
+            return None;
+        }
+        self.sort();
+        atkinson_on_sorted(&self.data, epsilon)
+    }
+}
+
 impl<T: PartialOrd + ToPrimitive + Clone> Unsorted<T> {
     /// Returns the quartiles of the data using selection algorithm.
     ///
@@ -1746,6 +2182,285 @@ mod test {
         let mut unsorted = Unsorted::new();
         unsorted.extend(vec![3, 5, 7, 9]);
         assert_eq!(unsorted.quartiles_zero_copy(), Some((4.0, 6.0, 8.0)));
+    }
+
+    #[test]
+    fn gini_empty() {
+        let mut unsorted: Unsorted<i32> = Unsorted::new();
+        assert_eq!(unsorted.gini(), None);
+        let empty_vec: Vec<i32> = vec![];
+        assert_eq!(gini(empty_vec.into_iter()), None);
+    }
+
+    #[test]
+    fn gini_single_element() {
+        let mut unsorted = Unsorted::new();
+        unsorted.add(5);
+        assert_eq!(unsorted.gini(), Some(0.0));
+        assert_eq!(gini(vec![5].into_iter()), Some(0.0));
+    }
+
+    #[test]
+    fn gini_perfect_equality() {
+        // All values are the same - perfect equality, Gini = 0
+        let mut unsorted = Unsorted::new();
+        unsorted.extend(vec![10, 10, 10, 10, 10]);
+        let result = unsorted.gini().unwrap();
+        assert!((result - 0.0).abs() < 1e-10, "Expected 0.0, got {}", result);
+
+        assert!((gini(vec![10, 10, 10, 10, 10].into_iter()).unwrap() - 0.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn gini_perfect_inequality() {
+        // One value has everything, others have zero - perfect inequality
+        // For [0, 0, 0, 0, 100], Gini should be close to 1
+        let mut unsorted = Unsorted::new();
+        unsorted.extend(vec![0, 0, 0, 0, 100]);
+        let result = unsorted.gini().unwrap();
+        // Perfect inequality should give Gini close to 1
+        // For n=5, one value=100, others=0: G = (2*5*100)/(5*100) - 6/5 = 2 - 1.2 = 0.8
+        assert!((result - 0.8).abs() < 1e-10, "Expected 0.8, got {}", result);
+    }
+
+    #[test]
+    fn gini_stream() {
+        // Test with known values
+        // For [1, 2, 3, 4, 5]:
+        // sum = 15
+        // weighted_sum = 1*1 + 2*2 + 3*3 + 4*4 + 5*5 = 1 + 4 + 9 + 16 + 25 = 55
+        // n = 5
+        // G = (2 * 55) / (5 * 15) - 6/5 = 110/75 - 1.2 = 1.4667 - 1.2 = 0.2667
+        let result = gini(vec![1usize, 2, 3, 4, 5].into_iter()).unwrap();
+        let expected = (2.0 * 55.0) / (5.0 * 15.0) - 6.0 / 5.0;
+        assert!(
+            (result - expected).abs() < 1e-10,
+            "Expected {}, got {}",
+            expected,
+            result
+        );
+    }
+
+    #[test]
+    fn gini_floats() {
+        let mut unsorted = Unsorted::new();
+        unsorted.extend(vec![1.0, 2.0, 3.0, 4.0, 5.0]);
+        let result = unsorted.gini().unwrap();
+        let expected = (2.0 * 55.0) / (5.0 * 15.0) - 6.0 / 5.0;
+        assert!((result - expected).abs() < 1e-10);
+
+        assert!(
+            (gini(vec![1.0f64, 2.0, 3.0, 4.0, 5.0].into_iter()).unwrap() - expected).abs() < 1e-10
+        );
+    }
+
+    #[test]
+    fn gini_all_zeros() {
+        // All zeros - sum is zero, Gini is undefined
+        let mut unsorted = Unsorted::new();
+        unsorted.extend(vec![0, 0, 0, 0]);
+        assert_eq!(unsorted.gini(), None);
+        assert_eq!(gini(vec![0, 0, 0, 0].into_iter()), None);
+    }
+
+    #[test]
+    fn gini_negative_values() {
+        // Test with negative values (mathematically valid)
+        let mut unsorted = Unsorted::new();
+        unsorted.extend(vec![-5, -3, -1, 1, 3, 5]);
+        let result = unsorted.gini();
+        // Sum is 0, so Gini is undefined
+        assert_eq!(result, None);
+
+        // Test with negative values that don't sum to zero
+        let mut unsorted = Unsorted::new();
+        unsorted.extend(vec![-2, -1, 0, 1, 2]);
+        let result = unsorted.gini();
+        // Sum is 0, so Gini is undefined
+        assert_eq!(result, None);
+
+        // Test with values that sum to non-zero
+        let mut unsorted = Unsorted::new();
+        unsorted.extend(vec![-1, 0, 1, 2, 3]);
+        let result = unsorted.gini();
+        assert!(result.is_some());
+    }
+
+    #[test]
+    fn gini_known_cases() {
+        // Test case: [1, 1, 1, 1, 1] - perfect equality
+        let mut unsorted = Unsorted::new();
+        unsorted.extend(vec![1, 1, 1, 1, 1]);
+        let result = unsorted.gini().unwrap();
+        assert!((result - 0.0).abs() < 1e-10);
+
+        // Test case: [0, 0, 0, 0, 1] - high inequality
+        let mut unsorted = Unsorted::new();
+        unsorted.extend(vec![0, 0, 0, 0, 1]);
+        let result = unsorted.gini().unwrap();
+        // G = (2 * 5 * 1) / (5 * 1) - 6/5 = 2 - 1.2 = 0.8
+        assert!((result - 0.8).abs() < 1e-10);
+
+        // Test case: [1, 2, 3] - moderate inequality
+        let mut unsorted = Unsorted::new();
+        unsorted.extend(vec![1, 2, 3]);
+        let result = unsorted.gini().unwrap();
+        // sum = 6, weighted_sum = 1*1 + 2*2 + 3*3 = 1 + 4 + 9 = 14
+        // G = (2 * 14) / (3 * 6) - 4/3 = 28/18 - 4/3 = 1.5556 - 1.3333 = 0.2222
+        let expected = (2.0 * 14.0) / (3.0 * 6.0) - 4.0 / 3.0;
+        assert!((result - expected).abs() < 1e-10);
+    }
+
+    #[test]
+    fn kurtosis_empty() {
+        let mut unsorted: Unsorted<i32> = Unsorted::new();
+        assert_eq!(unsorted.kurtosis(), None);
+        let empty_vec: Vec<i32> = vec![];
+        assert_eq!(kurtosis(empty_vec.into_iter()), None);
+    }
+
+    #[test]
+    fn kurtosis_small() {
+        // Need at least 4 elements
+        let mut unsorted = Unsorted::new();
+        unsorted.extend(vec![1, 2]);
+        assert_eq!(unsorted.kurtosis(), None);
+
+        let mut unsorted = Unsorted::new();
+        unsorted.extend(vec![1, 2, 3]);
+        assert_eq!(unsorted.kurtosis(), None);
+    }
+
+    #[test]
+    fn kurtosis_normal_distribution() {
+        // Normal distribution should have kurtosis close to 0
+        let mut unsorted = Unsorted::new();
+        unsorted.extend(vec![1, 2, 3, 4, 5]);
+        let result = unsorted.kurtosis();
+        assert!(result.is_some());
+        // For small samples, kurtosis can vary significantly
+    }
+
+    #[test]
+    fn kurtosis_all_same() {
+        // All same values - variance is 0, kurtosis undefined
+        let mut unsorted = Unsorted::new();
+        unsorted.extend(vec![5, 5, 5, 5]);
+        assert_eq!(unsorted.kurtosis(), None);
+    }
+
+    #[test]
+    fn kurtosis_stream() {
+        let result = kurtosis(vec![1usize, 2, 3, 4, 5].into_iter());
+        assert!(result.is_some());
+    }
+
+    #[test]
+    fn percentile_rank_empty() {
+        let mut unsorted: Unsorted<i32> = Unsorted::new();
+        assert_eq!(unsorted.percentile_rank(5), None);
+        let empty_vec: Vec<i32> = vec![];
+        assert_eq!(percentile_rank(empty_vec.into_iter(), 5), None);
+    }
+
+    #[test]
+    fn percentile_rank_basic() {
+        let mut unsorted = Unsorted::new();
+        unsorted.extend(vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+
+        // Value less than all
+        assert_eq!(unsorted.percentile_rank(0), Some(0.0));
+
+        // Value greater than all
+        assert_eq!(unsorted.percentile_rank(11), Some(100.0));
+
+        // Median (5) should be around 50th percentile
+        let rank = unsorted.percentile_rank(5).unwrap();
+        assert!((rank - 50.0).abs() < 1.0);
+
+        // First value should be at 10th percentile
+        let rank = unsorted.percentile_rank(1).unwrap();
+        assert!((rank - 10.0).abs() < 1.0);
+    }
+
+    #[test]
+    fn percentile_rank_duplicates() {
+        let mut unsorted = Unsorted::new();
+        unsorted.extend(vec![1, 1, 2, 2, 3, 3, 4, 4, 5, 5]);
+
+        // Value 2 appears twice, should be at 40th percentile (4 values <= 2)
+        let rank = unsorted.percentile_rank(2).unwrap();
+        assert!((rank - 40.0).abs() < 1.0);
+    }
+
+    #[test]
+    fn percentile_rank_stream() {
+        let result = percentile_rank(vec![1usize, 2, 3, 4, 5].into_iter(), 3);
+        assert_eq!(result, Some(60.0)); // 3 out of 5 values <= 3
+    }
+
+    #[test]
+    fn atkinson_empty() {
+        let mut unsorted: Unsorted<i32> = Unsorted::new();
+        assert_eq!(unsorted.atkinson(1.0), None);
+        let empty_vec: Vec<i32> = vec![];
+        assert_eq!(atkinson(empty_vec.into_iter(), 1.0), None);
+    }
+
+    #[test]
+    fn atkinson_single_element() {
+        let mut unsorted = Unsorted::new();
+        unsorted.add(5);
+        assert_eq!(unsorted.atkinson(1.0), Some(0.0));
+        assert_eq!(atkinson(vec![5].into_iter(), 1.0), Some(0.0));
+    }
+
+    #[test]
+    fn atkinson_perfect_equality() {
+        // All values the same - perfect equality, Atkinson = 0
+        let mut unsorted = Unsorted::new();
+        unsorted.extend(vec![10, 10, 10, 10, 10]);
+        let result = unsorted.atkinson(1.0).unwrap();
+        assert!((result - 0.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn atkinson_epsilon_zero() {
+        // Epsilon = 0 means no inequality aversion, should return 0
+        let mut unsorted = Unsorted::new();
+        unsorted.extend(vec![1, 2, 3, 4, 5]);
+        let result = unsorted.atkinson(0.0).unwrap();
+        assert!((result - 0.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn atkinson_epsilon_one() {
+        // Epsilon = 1 uses geometric mean
+        let mut unsorted = Unsorted::new();
+        unsorted.extend(vec![1, 2, 3, 4, 5]);
+        let result = unsorted.atkinson(1.0);
+        assert!(result.is_some());
+    }
+
+    #[test]
+    fn atkinson_negative_epsilon() {
+        let mut unsorted = Unsorted::new();
+        unsorted.extend(vec![1, 2, 3, 4, 5]);
+        assert_eq!(unsorted.atkinson(-1.0), None);
+    }
+
+    #[test]
+    fn atkinson_zero_mean() {
+        // If mean is zero, Atkinson is undefined
+        let mut unsorted = Unsorted::new();
+        unsorted.extend(vec![0, 0, 0, 0]);
+        assert_eq!(unsorted.atkinson(1.0), None);
+    }
+
+    #[test]
+    fn atkinson_stream() {
+        let result = atkinson(vec![1usize, 2, 3, 4, 5].into_iter(), 1.0);
+        assert!(result.is_some());
     }
 }
 
