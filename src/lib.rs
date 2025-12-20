@@ -14,7 +14,10 @@ use serde::{Deserialize, Serialize};
 pub use frequency::{Frequencies, UniqueValues};
 pub use minmax::MinMax;
 pub use online::{OnlineStats, mean, stddev, variance};
-pub use unsorted::{Unsorted, antimodes, mad, median, mode, modes, quartiles};
+pub use unsorted::{
+    Unsorted, antimodes, atkinson, gini, kurtosis, mad, median, mode, modes, percentile_rank,
+    quartiles,
+};
 
 /// Partial wraps a type that satisfies `PartialOrd` and implements `Ord`.
 ///
