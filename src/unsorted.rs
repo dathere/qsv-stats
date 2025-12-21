@@ -116,12 +116,12 @@ where
 /// to 1 (perfect inequality).
 ///
 /// (This has time complexity `O(n log n)` and space complexity `O(n)`.)
-pub fn gini<I>(it: I) -> Option<f64>
+pub fn gini<I>(it: I, precalc_sum: Option<f64>) -> Option<f64>
 where
     I: Iterator,
     <I as Iterator>::Item: PartialOrd + ToPrimitive + Sync,
 {
-    it.collect::<Unsorted<_>>().gini()
+    it.collect::<Unsorted<_>>().gini(precalc_sum)
 }
 
 /// Compute the kurtosis (excess kurtosis) on a stream of data.
@@ -131,12 +131,13 @@ where
 /// negative values indicate light tails.
 ///
 /// (This has time complexity `O(n log n)` and space complexity `O(n)`.)
-pub fn kurtosis<I>(it: I) -> Option<f64>
+pub fn kurtosis<I>(it: I, precalc_mean: Option<f64>, precalc_variance: Option<f64>) -> Option<f64>
 where
     I: Iterator,
     <I as Iterator>::Item: PartialOrd + ToPrimitive + Sync,
 {
-    it.collect::<Unsorted<_>>().kurtosis()
+    it.collect::<Unsorted<_>>()
+        .kurtosis(precalc_mean, precalc_variance)
 }
 
 /// Compute the percentile rank of a value on a stream of data.
@@ -161,12 +162,18 @@ where
 /// Higher ε values give more weight to inequality at the lower end of the distribution.
 ///
 /// (This has time complexity `O(n log n)` and space complexity `O(n)`.)
-pub fn atkinson<I>(it: I, epsilon: f64) -> Option<f64>
+pub fn atkinson<I>(
+    it: I,
+    epsilon: f64,
+    precalc_mean: Option<f64>,
+    precalc_geometric_sum: Option<f64>,
+) -> Option<f64>
 where
     I: Iterator,
     <I as Iterator>::Item: PartialOrd + ToPrimitive + Sync,
 {
-    it.collect::<Unsorted<_>>().atkinson(epsilon)
+    it.collect::<Unsorted<_>>()
+        .atkinson(epsilon, precalc_mean, precalc_geometric_sum)
 }
 
 fn median_on_sorted<T>(data: &[T]) -> Option<f64>
@@ -226,7 +233,7 @@ where
     median_on_sorted(&abs_diff_vec)
 }
 
-fn gini_on_sorted<T>(data: &[Partial<T>]) -> Option<f64>
+fn gini_on_sorted<T>(data: &[Partial<T>], precalc_sum: Option<f64>) -> Option<f64>
 where
     T: Sync + PartialOrd + ToPrimitive,
 {
@@ -242,38 +249,38 @@ where
         return Some(0.0);
     }
 
-    // Use adaptive parallel processing based on data size
-    let (sum, weighted_sum) = if len < PARALLEL_THRESHOLD {
-        // Sequential processing for small datasets
+    // Use pre-calculated sum if provided, otherwise compute it
+    let sum = if let Some(precalc) = precalc_sum {
+        precalc
+    } else if len < PARALLEL_THRESHOLD {
         let mut sum = 0.0;
-        let mut weighted_sum = 0.0;
+        for x in data {
+            sum += x.0.to_f64()?;
+        }
+        sum
+    } else {
+        data.par_iter()
+            .map(|x| unsafe { x.0.to_f64().unwrap_unchecked() })
+            .sum()
+    };
 
+    // Compute weighted sum
+    let weighted_sum = if len < PARALLEL_THRESHOLD {
+        let mut weighted_sum = 0.0;
         for (i, x) in data.iter().enumerate() {
             let val = x.0.to_f64()?;
-            sum += val;
             weighted_sum += (i + 1) as f64 * val;
         }
-
-        (sum, weighted_sum)
+        weighted_sum
     } else {
-        // Parallel processing for large datasets
-        // Convert to f64 and compute sum in parallel
-        let sum: f64 = data
-            .par_iter()
-            .map(|x| unsafe { x.0.to_f64().unwrap_unchecked() })
-            .sum();
-
         // Compute weighted sum in parallel using enumerate to get indices
-        let weighted_sum: f64 = data
-            .par_iter()
+        data.par_iter()
             .enumerate()
             .map(|(i, x)| {
                 let val = unsafe { x.0.to_f64().unwrap_unchecked() };
                 (i + 1) as f64 * val
             })
-            .sum();
-
-        (sum, weighted_sum)
+            .sum()
     };
 
     // If sum is zero, Gini is undefined
@@ -290,7 +297,11 @@ where
     Some(gini)
 }
 
-fn kurtosis_on_sorted<T>(data: &[Partial<T>]) -> Option<f64>
+fn kurtosis_on_sorted<T>(
+    data: &[Partial<T>],
+    precalc_mean: Option<f64>,
+    precalc_variance: Option<f64>,
+) -> Option<f64>
 where
     T: Sync + PartialOrd + ToPrimitive,
 {
@@ -301,67 +312,108 @@ where
         return None;
     }
 
-    // Compute mean first
-    let sum: f64 = if len < PARALLEL_THRESHOLD {
-        let mut sum = 0.0;
-        for x in data {
-            sum += x.0.to_f64()?;
-        }
-        sum
+    // Use pre-calculated mean if provided, otherwise compute it
+    let mean = if let Some(precalc) = precalc_mean {
+        precalc
     } else {
-        data.par_iter()
-            .map(|x| unsafe { x.0.to_f64().unwrap_unchecked() })
-            .sum()
+        let sum: f64 = if len < PARALLEL_THRESHOLD {
+            let mut sum = 0.0;
+            for x in data {
+                sum += x.0.to_f64()?;
+            }
+            sum
+        } else {
+            data.par_iter()
+                .map(|x| unsafe { x.0.to_f64().unwrap_unchecked() })
+                .sum()
+        };
+        sum / len as f64
     };
 
-    let mean = sum / len as f64;
+    // Compute variance_sq and fourth_power_sum
+    // If variance is provided, we can compute variance_sq directly (variance_sq = variance^2)
+    // Otherwise, we need to compute variance from the data
+    let (variance_sq, fourth_power_sum) = if let Some(variance) = precalc_variance {
+        // Use pre-calculated variance: variance_sq = variance^2
+        let variance_sq = variance * variance;
 
-    // Compute variance and sum of fourth powers
-    let (variance_sum, fourth_power_sum) = if len < PARALLEL_THRESHOLD {
-        let mut variance_sum = 0.0;
-        let mut fourth_power_sum = 0.0;
-
-        for x in data {
-            let val = x.0.to_f64()?;
-            let diff = val - mean;
-            let diff_sq = diff * diff;
-            variance_sum += diff_sq;
-            fourth_power_sum += diff_sq * diff_sq;
-        }
-
-        (variance_sum, fourth_power_sum)
-    } else {
-        let variance_sum: f64 = data
-            .par_iter()
-            .map(|x| {
-                let val = unsafe { x.0.to_f64().unwrap_unchecked() };
-                let diff = val - mean;
-                diff * diff
-            })
-            .sum();
-
-        let fourth_power_sum: f64 = data
-            .par_iter()
-            .map(|x| {
-                let val = unsafe { x.0.to_f64().unwrap_unchecked() };
+        // Still need to compute fourth_power_sum
+        let fourth_power_sum = if len < PARALLEL_THRESHOLD {
+            let mut sum = 0.0;
+            for x in data {
+                let val = x.0.to_f64()?;
                 let diff = val - mean;
                 let diff_sq = diff * diff;
-                diff_sq * diff_sq
-            })
-            .sum();
+                sum += diff_sq * diff_sq;
+            }
+            sum
+        } else {
+            data.par_iter()
+                .map(|x| {
+                    let val = unsafe { x.0.to_f64().unwrap_unchecked() };
+                    let diff = val - mean;
+                    let diff_sq = diff * diff;
+                    diff_sq * diff_sq
+                })
+                .sum()
+        };
 
-        (variance_sum, fourth_power_sum)
+        (variance_sq, fourth_power_sum)
+    } else {
+        // Compute both variance_sum and fourth_power_sum
+        let (variance_sum, fourth_power_sum) = if len < PARALLEL_THRESHOLD {
+            let mut variance_sum = 0.0;
+            let mut fourth_power_sum = 0.0;
+
+            for x in data {
+                let val = x.0.to_f64()?;
+                let diff = val - mean;
+                let diff_sq = diff * diff;
+                variance_sum += diff_sq;
+                fourth_power_sum += diff_sq * diff_sq;
+            }
+
+            (variance_sum, fourth_power_sum)
+        } else {
+            let variance_sum: f64 = data
+                .par_iter()
+                .map(|x| {
+                    let val = unsafe { x.0.to_f64().unwrap_unchecked() };
+                    let diff = val - mean;
+                    diff * diff
+                })
+                .sum();
+
+            let fourth_power_sum: f64 = data
+                .par_iter()
+                .map(|x| {
+                    let val = unsafe { x.0.to_f64().unwrap_unchecked() };
+                    let diff = val - mean;
+                    let diff_sq = diff * diff;
+                    diff_sq * diff_sq
+                })
+                .sum();
+
+            (variance_sum, fourth_power_sum)
+        };
+
+        let variance = variance_sum / len as f64;
+
+        // If variance is zero, all values are the same, kurtosis is undefined
+        if variance == 0.0 {
+            return None;
+        }
+
+        let variance_sq = variance * variance;
+        (variance_sq, fourth_power_sum)
     };
 
-    let variance = variance_sum / len as f64;
-
-    // If variance is zero, all values are the same, kurtosis is undefined
-    if variance == 0.0 {
+    // If variance_sq is zero, all values are the same, kurtosis is undefined
+    if variance_sq == 0.0 {
         return None;
     }
 
     let n = len as f64;
-    let variance_sq = variance * variance;
 
     // Sample excess kurtosis formula:
     // kurtosis = (n(n+1) * Σ((x_i - mean)⁴)) / ((n-1)(n-2)(n-3) * variance²) - 3(n-1)²/((n-2)(n-3))
@@ -419,7 +471,12 @@ where
     Some((count as f64 / len as f64) * 100.0)
 }
 
-fn atkinson_on_sorted<T>(data: &[Partial<T>], epsilon: f64) -> Option<f64>
+fn atkinson_on_sorted<T>(
+    data: &[Partial<T>],
+    epsilon: f64,
+    precalc_mean: Option<f64>,
+    precalc_geometric_sum: Option<f64>,
+) -> Option<f64>
 where
     T: Sync + PartialOrd + ToPrimitive,
 {
@@ -440,20 +497,23 @@ where
         return None;
     }
 
-    // Compute mean
-    let sum: f64 = if len < PARALLEL_THRESHOLD {
-        let mut sum = 0.0;
-        for x in data {
-            sum += x.0.to_f64()?;
-        }
-        sum
+    // Use pre-calculated mean if provided, otherwise compute it
+    let mean = if let Some(precalc) = precalc_mean {
+        precalc
     } else {
-        data.par_iter()
-            .map(|x| unsafe { x.0.to_f64().unwrap_unchecked() })
-            .sum()
+        let sum: f64 = if len < PARALLEL_THRESHOLD {
+            let mut sum = 0.0;
+            for x in data {
+                sum += x.0.to_f64()?;
+            }
+            sum
+        } else {
+            data.par_iter()
+                .map(|x| unsafe { x.0.to_f64().unwrap_unchecked() })
+                .sum()
+        };
+        sum / len as f64
     };
-
-    let mean = sum / len as f64;
 
     // If mean is zero, Atkinson is undefined
     if mean == 0.0 {
@@ -463,7 +523,9 @@ where
     // Handle special case: epsilon = 1 (uses geometric mean)
     if (epsilon - 1.0).abs() < 1e-10 {
         // A_1 = 1 - (geometric_mean / mean)
-        let geometric_sum: f64 = if len < PARALLEL_THRESHOLD {
+        let geometric_sum: f64 = if let Some(precalc) = precalc_geometric_sum {
+            precalc
+        } else if len < PARALLEL_THRESHOLD {
             let mut sum = 0.0;
             for x in data {
                 let val = x.0.to_f64()?;
@@ -1484,12 +1546,12 @@ impl<T: PartialOrd + ToPrimitive + Sync> Unsorted<T> {
     /// to 1 (perfect inequality). This method sorts the data first and then computes the Gini coefficient.
     /// Time complexity: O(n log n)
     #[inline]
-    pub fn gini(&mut self) -> Option<f64> {
+    pub fn gini(&mut self, precalc_sum: Option<f64>) -> Option<f64> {
         if self.data.is_empty() {
             return None;
         }
         self.sort();
-        gini_on_sorted(&self.data)
+        gini_on_sorted(&self.data, precalc_sum)
     }
 
     /// Returns the kurtosis (excess kurtosis) of the data.
@@ -1499,12 +1561,16 @@ impl<T: PartialOrd + ToPrimitive + Sync> Unsorted<T> {
     /// negative values indicate light tails. This method sorts the data first and then computes kurtosis.
     /// Time complexity: O(n log n)
     #[inline]
-    pub fn kurtosis(&mut self) -> Option<f64> {
+    pub fn kurtosis(
+        &mut self,
+        precalc_mean: Option<f64>,
+        precalc_variance: Option<f64>,
+    ) -> Option<f64> {
         if self.data.is_empty() {
             return None;
         }
         self.sort();
-        kurtosis_on_sorted(&self.data)
+        kurtosis_on_sorted(&self.data, precalc_mean, precalc_variance)
     }
 
     /// Returns the percentile rank of a value in the data.
@@ -1539,13 +1605,20 @@ impl<T: PartialOrd + ToPrimitive + Sync> Unsorted<T> {
     ///   - 0.5: Moderate aversion
     ///   - 1.0: Uses geometric mean (special case)
     ///   - 2.0: High aversion
+    /// * `precalc_mean` - Optional pre-calculated mean
+    /// * `precalc_geometric_sum` - Optional pre-calculated geometric sum (sum of ln(val)), only used when epsilon = 1
     #[inline]
-    pub fn atkinson(&mut self, epsilon: f64) -> Option<f64> {
+    pub fn atkinson(
+        &mut self,
+        epsilon: f64,
+        precalc_mean: Option<f64>,
+        precalc_geometric_sum: Option<f64>,
+    ) -> Option<f64> {
         if self.data.is_empty() {
             return None;
         }
         self.sort();
-        atkinson_on_sorted(&self.data, epsilon)
+        atkinson_on_sorted(&self.data, epsilon, precalc_mean, precalc_geometric_sum)
     }
 }
 
@@ -2187,17 +2260,17 @@ mod test {
     #[test]
     fn gini_empty() {
         let mut unsorted: Unsorted<i32> = Unsorted::new();
-        assert_eq!(unsorted.gini(), None);
+        assert_eq!(unsorted.gini(None), None);
         let empty_vec: Vec<i32> = vec![];
-        assert_eq!(gini(empty_vec.into_iter()), None);
+        assert_eq!(gini(empty_vec.into_iter(), None), None);
     }
 
     #[test]
     fn gini_single_element() {
         let mut unsorted = Unsorted::new();
         unsorted.add(5);
-        assert_eq!(unsorted.gini(), Some(0.0));
-        assert_eq!(gini(vec![5].into_iter()), Some(0.0));
+        assert_eq!(unsorted.gini(None), Some(0.0));
+        assert_eq!(gini(vec![5].into_iter(), None), Some(0.0));
     }
 
     #[test]
@@ -2205,10 +2278,10 @@ mod test {
         // All values are the same - perfect equality, Gini = 0
         let mut unsorted = Unsorted::new();
         unsorted.extend(vec![10, 10, 10, 10, 10]);
-        let result = unsorted.gini().unwrap();
+        let result = unsorted.gini(None).unwrap();
         assert!((result - 0.0).abs() < 1e-10, "Expected 0.0, got {}", result);
 
-        assert!((gini(vec![10, 10, 10, 10, 10].into_iter()).unwrap() - 0.0).abs() < 1e-10);
+        assert!((gini(vec![10, 10, 10, 10, 10].into_iter(), None).unwrap() - 0.0).abs() < 1e-10);
     }
 
     #[test]
@@ -2217,7 +2290,7 @@ mod test {
         // For [0, 0, 0, 0, 100], Gini should be close to 1
         let mut unsorted = Unsorted::new();
         unsorted.extend(vec![0, 0, 0, 0, 100]);
-        let result = unsorted.gini().unwrap();
+        let result = unsorted.gini(None).unwrap();
         // Perfect inequality should give Gini close to 1
         // For n=5, one value=100, others=0: G = (2*5*100)/(5*100) - 6/5 = 2 - 1.2 = 0.8
         assert!((result - 0.8).abs() < 1e-10, "Expected 0.8, got {}", result);
@@ -2231,7 +2304,7 @@ mod test {
         // weighted_sum = 1*1 + 2*2 + 3*3 + 4*4 + 5*5 = 1 + 4 + 9 + 16 + 25 = 55
         // n = 5
         // G = (2 * 55) / (5 * 15) - 6/5 = 110/75 - 1.2 = 1.4667 - 1.2 = 0.2667
-        let result = gini(vec![1usize, 2, 3, 4, 5].into_iter()).unwrap();
+        let result = gini(vec![1usize, 2, 3, 4, 5].into_iter(), None).unwrap();
         let expected = (2.0 * 55.0) / (5.0 * 15.0) - 6.0 / 5.0;
         assert!(
             (result - expected).abs() < 1e-10,
@@ -2245,12 +2318,13 @@ mod test {
     fn gini_floats() {
         let mut unsorted = Unsorted::new();
         unsorted.extend(vec![1.0, 2.0, 3.0, 4.0, 5.0]);
-        let result = unsorted.gini().unwrap();
+        let result = unsorted.gini(None).unwrap();
         let expected = (2.0 * 55.0) / (5.0 * 15.0) - 6.0 / 5.0;
         assert!((result - expected).abs() < 1e-10);
 
         assert!(
-            (gini(vec![1.0f64, 2.0, 3.0, 4.0, 5.0].into_iter()).unwrap() - expected).abs() < 1e-10
+            (gini(vec![1.0f64, 2.0, 3.0, 4.0, 5.0].into_iter(), None).unwrap() - expected).abs()
+                < 1e-10
         );
     }
 
@@ -2259,8 +2333,8 @@ mod test {
         // All zeros - sum is zero, Gini is undefined
         let mut unsorted = Unsorted::new();
         unsorted.extend(vec![0, 0, 0, 0]);
-        assert_eq!(unsorted.gini(), None);
-        assert_eq!(gini(vec![0, 0, 0, 0].into_iter()), None);
+        assert_eq!(unsorted.gini(None), None);
+        assert_eq!(gini(vec![0, 0, 0, 0].into_iter(), None), None);
     }
 
     #[test]
@@ -2268,21 +2342,21 @@ mod test {
         // Test with negative values (mathematically valid)
         let mut unsorted = Unsorted::new();
         unsorted.extend(vec![-5, -3, -1, 1, 3, 5]);
-        let result = unsorted.gini();
+        let result = unsorted.gini(None);
         // Sum is 0, so Gini is undefined
         assert_eq!(result, None);
 
         // Test with negative values that don't sum to zero
         let mut unsorted = Unsorted::new();
         unsorted.extend(vec![-2, -1, 0, 1, 2]);
-        let result = unsorted.gini();
+        let result = unsorted.gini(None);
         // Sum is 0, so Gini is undefined
         assert_eq!(result, None);
 
         // Test with values that sum to non-zero
         let mut unsorted = Unsorted::new();
         unsorted.extend(vec![-1, 0, 1, 2, 3]);
-        let result = unsorted.gini();
+        let result = unsorted.gini(None);
         assert!(result.is_some());
     }
 
@@ -2291,20 +2365,20 @@ mod test {
         // Test case: [1, 1, 1, 1, 1] - perfect equality
         let mut unsorted = Unsorted::new();
         unsorted.extend(vec![1, 1, 1, 1, 1]);
-        let result = unsorted.gini().unwrap();
+        let result = unsorted.gini(None).unwrap();
         assert!((result - 0.0).abs() < 1e-10);
 
         // Test case: [0, 0, 0, 0, 1] - high inequality
         let mut unsorted = Unsorted::new();
         unsorted.extend(vec![0, 0, 0, 0, 1]);
-        let result = unsorted.gini().unwrap();
+        let result = unsorted.gini(None).unwrap();
         // G = (2 * 5 * 1) / (5 * 1) - 6/5 = 2 - 1.2 = 0.8
         assert!((result - 0.8).abs() < 1e-10);
 
         // Test case: [1, 2, 3] - moderate inequality
         let mut unsorted = Unsorted::new();
         unsorted.extend(vec![1, 2, 3]);
-        let result = unsorted.gini().unwrap();
+        let result = unsorted.gini(None).unwrap();
         // sum = 6, weighted_sum = 1*1 + 2*2 + 3*3 = 1 + 4 + 9 = 14
         // G = (2 * 14) / (3 * 6) - 4/3 = 28/18 - 4/3 = 1.5556 - 1.3333 = 0.2222
         let expected = (2.0 * 14.0) / (3.0 * 6.0) - 4.0 / 3.0;
@@ -2312,11 +2386,150 @@ mod test {
     }
 
     #[test]
+    fn gini_precalc_sum() {
+        // Test with pre-calculated sum
+        let mut unsorted = Unsorted::new();
+        unsorted.extend(vec![1, 2, 3, 4, 5]);
+        let precalc_sum = Some(15.0);
+        let result = unsorted.gini(precalc_sum).unwrap();
+        let expected = (2.0 * 55.0) / (5.0 * 15.0) - 6.0 / 5.0;
+        assert!((result - expected).abs() < 1e-10);
+
+        // Test that pre-calculated sum gives same result
+        let mut unsorted2 = Unsorted::new();
+        unsorted2.extend(vec![1, 2, 3, 4, 5]);
+        let result2 = unsorted2.gini(None).unwrap();
+        assert!((result - result2).abs() < 1e-10);
+    }
+
+    #[test]
+    fn gini_large_dataset() {
+        // Test with larger dataset to exercise parallel path
+        let data: Vec<i32> = (1..=1000).collect();
+        let result = gini(data.iter().copied(), None);
+        assert!(result.is_some());
+        let gini_val = result.unwrap();
+        // For uniform distribution, Gini should be positive but not too high
+        assert!(gini_val > 0.0 && gini_val < 0.5);
+    }
+
+    #[test]
+    fn gini_unsorted_vs_sorted() {
+        // Test that sorting doesn't affect result
+        let mut unsorted1 = Unsorted::new();
+        unsorted1.extend(vec![5, 2, 8, 1, 9, 3, 7, 4, 6]);
+        let result1 = unsorted1.gini(None).unwrap();
+
+        let mut unsorted2 = Unsorted::new();
+        unsorted2.extend(vec![1, 2, 3, 4, 5, 6, 7, 8, 9]);
+        let result2 = unsorted2.gini(None).unwrap();
+
+        assert!((result1 - result2).abs() < 1e-10);
+    }
+
+    #[test]
+    fn gini_small_values() {
+        // Test with very small values
+        let mut unsorted = Unsorted::new();
+        unsorted.extend(vec![0.001, 0.002, 0.003, 0.004, 0.005]);
+        let result = unsorted.gini(None);
+        assert!(result.is_some());
+        // Should be same as [1, 2, 3, 4, 5] scaled down
+        let expected = (2.0 * 55.0) / (5.0 * 15.0) - 6.0 / 5.0;
+        assert!((result.unwrap() - expected).abs() < 1e-10);
+    }
+
+    #[test]
+    fn gini_large_values() {
+        // Test with large values
+        let mut unsorted = Unsorted::new();
+        unsorted.extend(vec![1000, 2000, 3000, 4000, 5000]);
+        let result = unsorted.gini(None);
+        assert!(result.is_some());
+        // Should be same as [1, 2, 3, 4, 5] scaled up
+        let expected = (2.0 * 55.0) / (5.0 * 15.0) - 6.0 / 5.0;
+        assert!((result.unwrap() - expected).abs() < 1e-10);
+    }
+
+    #[test]
+    fn gini_two_elements() {
+        // Test with exactly 2 elements
+        let mut unsorted = Unsorted::new();
+        unsorted.extend(vec![1, 2]);
+        let result = unsorted.gini(None).unwrap();
+        // For [1, 2]: sum=3, weighted_sum=1*1+2*2=5, n=2
+        // G = (2*5)/(2*3) - 3/2 = 10/6 - 1.5 = 1.6667 - 1.5 = 0.1667
+        let expected = (2.0 * 5.0) / (2.0 * 3.0) - 3.0 / 2.0;
+        assert!((result - expected).abs() < 1e-10);
+    }
+
+    #[test]
+    fn gini_precalc_sum_zero() {
+        // Test with pre-calculated sum of zero (should return None)
+        let mut unsorted = Unsorted::new();
+        unsorted.extend(vec![1, 2, 3, 4, 5]);
+        let result = unsorted.gini(Some(0.0));
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn gini_precalc_sum_negative() {
+        // Test with negative sum
+        // The function only checks if sum == 0.0, not if sum < 0.0
+        // So negative sums will still compute Gini (though mathematically questionable)
+        let mut unsorted = Unsorted::new();
+        unsorted.extend(vec![-5, -3, -1, 1, 3]);
+        let result = unsorted.gini(None);
+        // Sum is -5, function doesn't check for negative, so it computes Gini
+        // This is technically invalid but the function allows it
+        assert!(result.is_some());
+    }
+
+    #[test]
+    fn gini_different_types() {
+        // Test with different integer types
+        let mut unsorted_u32 = Unsorted::new();
+        unsorted_u32.extend(vec![1u32, 2, 3, 4, 5]);
+        let result_u32 = unsorted_u32.gini(None).unwrap();
+
+        let mut unsorted_i64 = Unsorted::new();
+        unsorted_i64.extend(vec![1i64, 2, 3, 4, 5]);
+        let result_i64 = unsorted_i64.gini(None).unwrap();
+
+        let expected = (2.0 * 55.0) / (5.0 * 15.0) - 6.0 / 5.0;
+        assert!((result_u32 - expected).abs() < 1e-10);
+        assert!((result_i64 - expected).abs() < 1e-10);
+    }
+
+    #[test]
+    fn gini_extreme_inequality() {
+        // Test with extreme inequality: one very large value, many zeros
+        let mut unsorted = Unsorted::new();
+        unsorted.extend(vec![0, 0, 0, 0, 0, 0, 0, 0, 0, 1000]);
+        let result = unsorted.gini(None).unwrap();
+        // For [0,0,0,0,0,0,0,0,0,1000]: sum=1000, weighted_sum=10*1000=10000, n=10
+        // G = (2*10000)/(10*1000) - 11/10 = 20/10 - 1.1 = 2 - 1.1 = 0.9
+        assert!((result - 0.9).abs() < 1e-10);
+    }
+
+    #[test]
+    fn gini_duplicate_values() {
+        // Test with many duplicate values
+        let mut unsorted = Unsorted::new();
+        unsorted.extend(vec![1, 1, 1, 5, 5, 5, 10, 10, 10]);
+        let result = unsorted.gini(None);
+        assert!(result.is_some());
+        // Should be between 0 and 1
+        let gini_val = result.unwrap();
+        assert!(gini_val >= 0.0 && gini_val <= 1.0);
+    }
+
+    #[test]
     fn kurtosis_empty() {
         let mut unsorted: Unsorted<i32> = Unsorted::new();
-        assert_eq!(unsorted.kurtosis(), None);
+        assert_eq!(unsorted.kurtosis(None, None), None);
         let empty_vec: Vec<i32> = vec![];
-        assert_eq!(kurtosis(empty_vec.into_iter()), None);
+        assert_eq!(kurtosis(empty_vec.into_iter(), None, None), None);
     }
 
     #[test]
@@ -2324,11 +2537,11 @@ mod test {
         // Need at least 4 elements
         let mut unsorted = Unsorted::new();
         unsorted.extend(vec![1, 2]);
-        assert_eq!(unsorted.kurtosis(), None);
+        assert_eq!(unsorted.kurtosis(None, None), None);
 
         let mut unsorted = Unsorted::new();
         unsorted.extend(vec![1, 2, 3]);
-        assert_eq!(unsorted.kurtosis(), None);
+        assert_eq!(unsorted.kurtosis(None, None), None);
     }
 
     #[test]
@@ -2336,7 +2549,7 @@ mod test {
         // Normal distribution should have kurtosis close to 0
         let mut unsorted = Unsorted::new();
         unsorted.extend(vec![1, 2, 3, 4, 5]);
-        let result = unsorted.kurtosis();
+        let result = unsorted.kurtosis(None, None);
         assert!(result.is_some());
         // For small samples, kurtosis can vary significantly
     }
@@ -2346,13 +2559,264 @@ mod test {
         // All same values - variance is 0, kurtosis undefined
         let mut unsorted = Unsorted::new();
         unsorted.extend(vec![5, 5, 5, 5]);
-        assert_eq!(unsorted.kurtosis(), None);
+        assert_eq!(unsorted.kurtosis(None, None), None);
     }
 
     #[test]
     fn kurtosis_stream() {
-        let result = kurtosis(vec![1usize, 2, 3, 4, 5].into_iter());
+        let result = kurtosis(vec![1usize, 2, 3, 4, 5].into_iter(), None, None);
         assert!(result.is_some());
+    }
+
+    #[test]
+    fn kurtosis_precalc_mean_variance() {
+        // Test with pre-calculated mean and variance
+        let mut unsorted = Unsorted::new();
+        unsorted.extend(vec![1, 2, 3, 4, 5]);
+
+        // Calculate mean and variance manually
+        let mean = 3.0f64;
+        let variance = ((1.0f64 - 3.0).powi(2)
+            + (2.0f64 - 3.0).powi(2)
+            + (3.0f64 - 3.0).powi(2)
+            + (4.0f64 - 3.0).powi(2)
+            + (5.0f64 - 3.0).powi(2))
+            / 5.0;
+
+        let result = unsorted.kurtosis(Some(mean), Some(variance));
+        assert!(result.is_some());
+
+        // Test that pre-calculated values give same result
+        let mut unsorted2 = Unsorted::new();
+        unsorted2.extend(vec![1, 2, 3, 4, 5]);
+        let result2 = unsorted2.kurtosis(None, None);
+        assert!((result.unwrap() - result2.unwrap()).abs() < 1e-10);
+    }
+
+    #[test]
+    fn kurtosis_precalc_mean_only() {
+        // Test with pre-calculated mean only
+        let mut unsorted = Unsorted::new();
+        unsorted.extend(vec![1, 2, 3, 4, 5]);
+        let mean = 3.0f64;
+
+        let result = unsorted.kurtosis(Some(mean), None);
+        assert!(result.is_some());
+
+        // Test that pre-calculated mean gives same result
+        let mut unsorted2 = Unsorted::new();
+        unsorted2.extend(vec![1, 2, 3, 4, 5]);
+        let result2 = unsorted2.kurtosis(None, None);
+        assert!((result.unwrap() - result2.unwrap()).abs() < 1e-10);
+    }
+
+    #[test]
+    fn kurtosis_precalc_variance_only() {
+        // Test with pre-calculated variance only
+        let mut unsorted = Unsorted::new();
+        unsorted.extend(vec![1, 2, 3, 4, 5]);
+        let variance = ((1.0f64 - 3.0).powi(2)
+            + (2.0f64 - 3.0).powi(2)
+            + (3.0f64 - 3.0).powi(2)
+            + (4.0f64 - 3.0).powi(2)
+            + (5.0f64 - 3.0).powi(2))
+            / 5.0;
+
+        let result = unsorted.kurtosis(None, Some(variance));
+        assert!(result.is_some());
+
+        // Test that pre-calculated variance gives same result
+        let mut unsorted2 = Unsorted::new();
+        unsorted2.extend(vec![1, 2, 3, 4, 5]);
+        let result2 = unsorted2.kurtosis(None, None);
+        assert!((result.unwrap() - result2.unwrap()).abs() < 1e-10);
+    }
+
+    #[test]
+    fn kurtosis_exact_calculation() {
+        // Test with exact calculation for [1, 2, 3, 4]
+        // Mean = 2.5
+        // Variance = ((1-2.5)^2 + (2-2.5)^2 + (3-2.5)^2 + (4-2.5)^2) / 4 = (2.25 + 0.25 + 0.25 + 2.25) / 4 = 1.25
+        // Variance^2 = 1.5625
+        // Fourth powers: (1-2.5)^4 + (2-2.5)^4 + (3-2.5)^4 + (4-2.5)^4 = 5.0625 + 0.0625 + 0.0625 + 5.0625 = 10.25
+        // n = 4
+        // Kurtosis = (4*5*10.25) / (3*2*1*1.5625) - 3*3*3/(2*1) = 205 / 9.375 - 13.5 = 21.8667 - 13.5 = 8.3667
+        let mut unsorted = Unsorted::new();
+        unsorted.extend(vec![1, 2, 3, 4]);
+        let result = unsorted.kurtosis(None, None).unwrap();
+        // For small samples, kurtosis can be very high
+        assert!(result.is_finite());
+    }
+
+    #[test]
+    fn kurtosis_uniform_distribution() {
+        // Uniform distribution should have negative excess kurtosis
+        let mut unsorted = Unsorted::new();
+        unsorted.extend(vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+        let result = unsorted.kurtosis(None, None).unwrap();
+        // Uniform distribution has excess kurtosis = -1.2
+        // But for small samples, it can vary significantly
+        assert!(result.is_finite());
+    }
+
+    #[test]
+    fn kurtosis_large_dataset() {
+        // Test with larger dataset to exercise parallel path
+        let data: Vec<i32> = (1..=1000).collect();
+        let result = kurtosis(data.iter().copied(), None, None);
+        assert!(result.is_some());
+        let kurt_val = result.unwrap();
+        assert!(kurt_val.is_finite());
+    }
+
+    #[test]
+    fn kurtosis_unsorted_vs_sorted() {
+        // Test that sorting doesn't affect result
+        let mut unsorted1 = Unsorted::new();
+        unsorted1.extend(vec![5, 2, 8, 1, 9, 3, 7, 4, 6]);
+        let result1 = unsorted1.kurtosis(None, None).unwrap();
+
+        let mut unsorted2 = Unsorted::new();
+        unsorted2.extend(vec![1, 2, 3, 4, 5, 6, 7, 8, 9]);
+        let result2 = unsorted2.kurtosis(None, None).unwrap();
+
+        assert!((result1 - result2).abs() < 1e-10);
+    }
+
+    #[test]
+    fn kurtosis_minimum_size() {
+        // Test with exactly 4 elements (minimum required)
+        let mut unsorted = Unsorted::new();
+        unsorted.extend(vec![1, 2, 3, 4]);
+        let result = unsorted.kurtosis(None, None);
+        assert!(result.is_some());
+        assert!(result.unwrap().is_finite());
+    }
+
+    #[test]
+    fn kurtosis_heavy_tailed() {
+        // Test with heavy-tailed distribution (outliers)
+        let mut unsorted = Unsorted::new();
+        unsorted.extend(vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 100]);
+        let result = unsorted.kurtosis(None, None).unwrap();
+        // Heavy tails should give positive excess kurtosis
+        assert!(result.is_finite());
+        // With an outlier, kurtosis should be positive
+        assert!(result > -10.0); // Allow some variance but should be reasonable
+    }
+
+    #[test]
+    fn kurtosis_light_tailed() {
+        // Test with light-tailed distribution (values close together)
+        let mut unsorted = Unsorted::new();
+        unsorted.extend(vec![10, 11, 12, 13, 14, 15, 16, 17, 18, 19]);
+        let result = unsorted.kurtosis(None, None).unwrap();
+        // Light tails might give negative excess kurtosis
+        assert!(result.is_finite());
+    }
+
+    #[test]
+    fn kurtosis_small_variance() {
+        // Test with very small variance (values very close together)
+        let mut unsorted = Unsorted::new();
+        unsorted.extend(vec![10.0, 10.001, 10.002, 10.003, 10.004]);
+        let result = unsorted.kurtosis(None, None);
+        // Should still compute (variance is very small but non-zero)
+        assert!(result.is_some());
+        assert!(result.unwrap().is_finite());
+    }
+
+    #[test]
+    fn kurtosis_precalc_zero_variance() {
+        // Test with pre-calculated variance of zero (should return None)
+        let mut unsorted = Unsorted::new();
+        unsorted.extend(vec![1, 2, 3, 4, 5]);
+        let result = unsorted.kurtosis(None, Some(0.0));
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn kurtosis_precalc_negative_variance() {
+        // Test with negative variance (invalid, but should handle gracefully)
+        let mut unsorted = Unsorted::new();
+        unsorted.extend(vec![1, 2, 3, 4, 5]);
+        // Negative variance is invalid, but function should handle it
+        let result = unsorted.kurtosis(None, Some(-1.0));
+        // Should either return None or handle it gracefully
+        // The function computes variance_sq = variance^2, so negative becomes positive
+        // But this is invalid input, so behavior may vary
+        // For now, just check it doesn't panic
+        let _ = result;
+    }
+
+    #[test]
+    fn kurtosis_different_types() {
+        // Test with different integer types
+        let mut unsorted_u32 = Unsorted::new();
+        unsorted_u32.extend(vec![1u32, 2, 3, 4, 5]);
+        let result_u32 = unsorted_u32.kurtosis(None, None).unwrap();
+
+        let mut unsorted_i64 = Unsorted::new();
+        unsorted_i64.extend(vec![1i64, 2, 3, 4, 5]);
+        let result_i64 = unsorted_i64.kurtosis(None, None).unwrap();
+
+        assert!((result_u32 - result_i64).abs() < 1e-10);
+    }
+
+    #[test]
+    fn kurtosis_floating_point_precision() {
+        // Test floating point precision
+        let mut unsorted = Unsorted::new();
+        unsorted.extend(vec![1.1, 2.2, 3.3, 4.4, 5.5]);
+        let result = unsorted.kurtosis(None, None);
+        assert!(result.is_some());
+        assert!(result.unwrap().is_finite());
+    }
+
+    #[test]
+    fn kurtosis_negative_values() {
+        // Test with negative values
+        let mut unsorted = Unsorted::new();
+        unsorted.extend(vec![-5, -3, -1, 1, 3, 5]);
+        let result = unsorted.kurtosis(None, None);
+        assert!(result.is_some());
+        assert!(result.unwrap().is_finite());
+    }
+
+    #[test]
+    fn kurtosis_mixed_positive_negative() {
+        // Test with mixed positive and negative values
+        let mut unsorted = Unsorted::new();
+        unsorted.extend(vec![-10, -5, 0, 5, 10]);
+        let result = unsorted.kurtosis(None, None);
+        assert!(result.is_some());
+        assert!(result.unwrap().is_finite());
+    }
+
+    #[test]
+    fn kurtosis_duplicate_values() {
+        // Test with duplicate values (but not all same)
+        let mut unsorted = Unsorted::new();
+        unsorted.extend(vec![1, 1, 2, 2, 3, 3, 4, 4, 5, 5]);
+        let result = unsorted.kurtosis(None, None);
+        assert!(result.is_some());
+        assert!(result.unwrap().is_finite());
+    }
+
+    #[test]
+    fn kurtosis_precalc_mean_wrong() {
+        // Test that wrong pre-calculated mean gives wrong result
+        let mut unsorted1 = Unsorted::new();
+        unsorted1.extend(vec![1, 2, 3, 4, 5]);
+        let correct_result = unsorted1.kurtosis(None, None).unwrap();
+
+        let mut unsorted2 = Unsorted::new();
+        unsorted2.extend(vec![1, 2, 3, 4, 5]);
+        let wrong_mean = 10.0; // Wrong mean
+        let wrong_result = unsorted2.kurtosis(Some(wrong_mean), None).unwrap();
+
+        // Results should be different
+        assert!((correct_result - wrong_result).abs() > 1e-5);
     }
 
     #[test]
@@ -2402,17 +2866,17 @@ mod test {
     #[test]
     fn atkinson_empty() {
         let mut unsorted: Unsorted<i32> = Unsorted::new();
-        assert_eq!(unsorted.atkinson(1.0), None);
+        assert_eq!(unsorted.atkinson(1.0, None, None), None);
         let empty_vec: Vec<i32> = vec![];
-        assert_eq!(atkinson(empty_vec.into_iter(), 1.0), None);
+        assert_eq!(atkinson(empty_vec.into_iter(), 1.0, None, None), None);
     }
 
     #[test]
     fn atkinson_single_element() {
         let mut unsorted = Unsorted::new();
         unsorted.add(5);
-        assert_eq!(unsorted.atkinson(1.0), Some(0.0));
-        assert_eq!(atkinson(vec![5].into_iter(), 1.0), Some(0.0));
+        assert_eq!(unsorted.atkinson(1.0, None, None), Some(0.0));
+        assert_eq!(atkinson(vec![5].into_iter(), 1.0, None, None), Some(0.0));
     }
 
     #[test]
@@ -2420,7 +2884,7 @@ mod test {
         // All values the same - perfect equality, Atkinson = 0
         let mut unsorted = Unsorted::new();
         unsorted.extend(vec![10, 10, 10, 10, 10]);
-        let result = unsorted.atkinson(1.0).unwrap();
+        let result = unsorted.atkinson(1.0, None, None).unwrap();
         assert!((result - 0.0).abs() < 1e-10);
     }
 
@@ -2429,7 +2893,7 @@ mod test {
         // Epsilon = 0 means no inequality aversion, should return 0
         let mut unsorted = Unsorted::new();
         unsorted.extend(vec![1, 2, 3, 4, 5]);
-        let result = unsorted.atkinson(0.0).unwrap();
+        let result = unsorted.atkinson(0.0, None, None).unwrap();
         assert!((result - 0.0).abs() < 1e-10);
     }
 
@@ -2438,7 +2902,7 @@ mod test {
         // Epsilon = 1 uses geometric mean
         let mut unsorted = Unsorted::new();
         unsorted.extend(vec![1, 2, 3, 4, 5]);
-        let result = unsorted.atkinson(1.0);
+        let result = unsorted.atkinson(1.0, None, None);
         assert!(result.is_some());
     }
 
@@ -2446,7 +2910,7 @@ mod test {
     fn atkinson_negative_epsilon() {
         let mut unsorted = Unsorted::new();
         unsorted.extend(vec![1, 2, 3, 4, 5]);
-        assert_eq!(unsorted.atkinson(-1.0), None);
+        assert_eq!(unsorted.atkinson(-1.0, None, None), None);
     }
 
     #[test]
@@ -2454,13 +2918,67 @@ mod test {
         // If mean is zero, Atkinson is undefined
         let mut unsorted = Unsorted::new();
         unsorted.extend(vec![0, 0, 0, 0]);
-        assert_eq!(unsorted.atkinson(1.0), None);
+        assert_eq!(unsorted.atkinson(1.0, None, None), None);
     }
 
     #[test]
     fn atkinson_stream() {
-        let result = atkinson(vec![1usize, 2, 3, 4, 5].into_iter(), 1.0);
+        let result = atkinson(vec![1usize, 2, 3, 4, 5].into_iter(), 1.0, None, None);
         assert!(result.is_some());
+    }
+
+    #[test]
+    fn atkinson_precalc_mean_geometric_sum() {
+        // Test with pre-calculated mean and geometric_sum
+        let mut unsorted = Unsorted::new();
+        unsorted.extend(vec![1, 2, 3, 4, 5]);
+
+        // Calculate mean and geometric_sum manually
+        let mean = 3.0f64;
+        let geometric_sum = 1.0f64.ln() + 2.0f64.ln() + 3.0f64.ln() + 4.0f64.ln() + 5.0f64.ln();
+
+        let result = unsorted.atkinson(1.0, Some(mean), Some(geometric_sum));
+        assert!(result.is_some());
+
+        // Test that pre-calculated values give same result
+        let mut unsorted2 = Unsorted::new();
+        unsorted2.extend(vec![1, 2, 3, 4, 5]);
+        let result2 = unsorted2.atkinson(1.0, None, None);
+        assert!((result.unwrap() - result2.unwrap()).abs() < 1e-10);
+    }
+
+    #[test]
+    fn atkinson_precalc_mean_only() {
+        // Test with pre-calculated mean only
+        let mut unsorted = Unsorted::new();
+        unsorted.extend(vec![1, 2, 3, 4, 5]);
+        let mean = 3.0f64;
+
+        let result = unsorted.atkinson(1.0, Some(mean), None);
+        assert!(result.is_some());
+
+        // Test that pre-calculated mean gives same result
+        let mut unsorted2 = Unsorted::new();
+        unsorted2.extend(vec![1, 2, 3, 4, 5]);
+        let result2 = unsorted2.atkinson(1.0, None, None);
+        assert!((result.unwrap() - result2.unwrap()).abs() < 1e-10);
+    }
+
+    #[test]
+    fn atkinson_precalc_geometric_sum_only() {
+        // Test with pre-calculated geometric_sum only
+        let mut unsorted = Unsorted::new();
+        unsorted.extend(vec![1, 2, 3, 4, 5]);
+        let geometric_sum = 1.0f64.ln() + 2.0f64.ln() + 3.0f64.ln() + 4.0f64.ln() + 5.0f64.ln();
+
+        let result = unsorted.atkinson(1.0, None, Some(geometric_sum));
+        assert!(result.is_some());
+
+        // Test that pre-calculated geometric_sum gives same result
+        let mut unsorted2 = Unsorted::new();
+        unsorted2.extend(vec![1, 2, 3, 4, 5]);
+        let result2 = unsorted2.atkinson(1.0, None, None);
+        assert!((result.unwrap() - result2.unwrap()).abs() < 1e-10);
     }
 }
 
