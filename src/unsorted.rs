@@ -116,12 +116,12 @@ where
 /// to 1 (perfect inequality).
 ///
 /// (This has time complexity `O(n log n)` and space complexity `O(n)`.)
-pub fn gini<I>(it: I) -> Option<f64>
+pub fn gini<I>(it: I, precalc_sum: Option<f64>) -> Option<f64>
 where
     I: Iterator,
     <I as Iterator>::Item: PartialOrd + ToPrimitive + Sync,
 {
-    it.collect::<Unsorted<_>>().gini()
+    it.collect::<Unsorted<_>>().gini(precalc_sum)
 }
 
 /// Compute the kurtosis (excess kurtosis) on a stream of data.
@@ -226,7 +226,7 @@ where
     median_on_sorted(&abs_diff_vec)
 }
 
-fn gini_on_sorted<T>(data: &[Partial<T>]) -> Option<f64>
+fn gini_on_sorted<T>(data: &[Partial<T>], precalc_sum: Option<f64>) -> Option<f64>
 where
     T: Sync + PartialOrd + ToPrimitive,
 {
@@ -242,38 +242,38 @@ where
         return Some(0.0);
     }
 
-    // Use adaptive parallel processing based on data size
-    let (sum, weighted_sum) = if len < PARALLEL_THRESHOLD {
-        // Sequential processing for small datasets
+    // Use pre-calculated sum if provided, otherwise compute it
+    let sum = if let Some(precalc) = precalc_sum {
+        precalc
+    } else if len < PARALLEL_THRESHOLD {
         let mut sum = 0.0;
-        let mut weighted_sum = 0.0;
+        for x in data {
+            sum += x.0.to_f64()?;
+        }
+        sum
+    } else {
+        data.par_iter()
+            .map(|x| unsafe { x.0.to_f64().unwrap_unchecked() })
+            .sum()
+    };
 
+    // Compute weighted sum
+    let weighted_sum = if len < PARALLEL_THRESHOLD {
+        let mut weighted_sum = 0.0;
         for (i, x) in data.iter().enumerate() {
             let val = x.0.to_f64()?;
-            sum += val;
             weighted_sum += (i + 1) as f64 * val;
         }
-
-        (sum, weighted_sum)
+        weighted_sum
     } else {
-        // Parallel processing for large datasets
-        // Convert to f64 and compute sum in parallel
-        let sum: f64 = data
-            .par_iter()
-            .map(|x| unsafe { x.0.to_f64().unwrap_unchecked() })
-            .sum();
-
         // Compute weighted sum in parallel using enumerate to get indices
-        let weighted_sum: f64 = data
-            .par_iter()
+        data.par_iter()
             .enumerate()
             .map(|(i, x)| {
                 let val = unsafe { x.0.to_f64().unwrap_unchecked() };
                 (i + 1) as f64 * val
             })
-            .sum();
-
-        (sum, weighted_sum)
+            .sum()
     };
 
     // If sum is zero, Gini is undefined
@@ -1484,12 +1484,12 @@ impl<T: PartialOrd + ToPrimitive + Sync> Unsorted<T> {
     /// to 1 (perfect inequality). This method sorts the data first and then computes the Gini coefficient.
     /// Time complexity: O(n log n)
     #[inline]
-    pub fn gini(&mut self) -> Option<f64> {
+    pub fn gini(&mut self, precalc_sum: Option<f64>) -> Option<f64> {
         if self.data.is_empty() {
             return None;
         }
         self.sort();
-        gini_on_sorted(&self.data)
+        gini_on_sorted(&self.data, precalc_sum)
     }
 
     /// Returns the kurtosis (excess kurtosis) of the data.
@@ -2187,17 +2187,17 @@ mod test {
     #[test]
     fn gini_empty() {
         let mut unsorted: Unsorted<i32> = Unsorted::new();
-        assert_eq!(unsorted.gini(), None);
+        assert_eq!(unsorted.gini(None), None);
         let empty_vec: Vec<i32> = vec![];
-        assert_eq!(gini(empty_vec.into_iter()), None);
+        assert_eq!(gini(empty_vec.into_iter(), None), None);
     }
 
     #[test]
     fn gini_single_element() {
         let mut unsorted = Unsorted::new();
         unsorted.add(5);
-        assert_eq!(unsorted.gini(), Some(0.0));
-        assert_eq!(gini(vec![5].into_iter()), Some(0.0));
+        assert_eq!(unsorted.gini(None), Some(0.0));
+        assert_eq!(gini(vec![5].into_iter(), None), Some(0.0));
     }
 
     #[test]
@@ -2205,10 +2205,10 @@ mod test {
         // All values are the same - perfect equality, Gini = 0
         let mut unsorted = Unsorted::new();
         unsorted.extend(vec![10, 10, 10, 10, 10]);
-        let result = unsorted.gini().unwrap();
+        let result = unsorted.gini(None).unwrap();
         assert!((result - 0.0).abs() < 1e-10, "Expected 0.0, got {}", result);
 
-        assert!((gini(vec![10, 10, 10, 10, 10].into_iter()).unwrap() - 0.0).abs() < 1e-10);
+        assert!((gini(vec![10, 10, 10, 10, 10].into_iter(), None).unwrap() - 0.0).abs() < 1e-10);
     }
 
     #[test]
@@ -2217,7 +2217,7 @@ mod test {
         // For [0, 0, 0, 0, 100], Gini should be close to 1
         let mut unsorted = Unsorted::new();
         unsorted.extend(vec![0, 0, 0, 0, 100]);
-        let result = unsorted.gini().unwrap();
+        let result = unsorted.gini(None).unwrap();
         // Perfect inequality should give Gini close to 1
         // For n=5, one value=100, others=0: G = (2*5*100)/(5*100) - 6/5 = 2 - 1.2 = 0.8
         assert!((result - 0.8).abs() < 1e-10, "Expected 0.8, got {}", result);
@@ -2231,7 +2231,7 @@ mod test {
         // weighted_sum = 1*1 + 2*2 + 3*3 + 4*4 + 5*5 = 1 + 4 + 9 + 16 + 25 = 55
         // n = 5
         // G = (2 * 55) / (5 * 15) - 6/5 = 110/75 - 1.2 = 1.4667 - 1.2 = 0.2667
-        let result = gini(vec![1usize, 2, 3, 4, 5].into_iter()).unwrap();
+        let result = gini(vec![1usize, 2, 3, 4, 5].into_iter(), None).unwrap();
         let expected = (2.0 * 55.0) / (5.0 * 15.0) - 6.0 / 5.0;
         assert!(
             (result - expected).abs() < 1e-10,
@@ -2245,12 +2245,13 @@ mod test {
     fn gini_floats() {
         let mut unsorted = Unsorted::new();
         unsorted.extend(vec![1.0, 2.0, 3.0, 4.0, 5.0]);
-        let result = unsorted.gini().unwrap();
+        let result = unsorted.gini(None).unwrap();
         let expected = (2.0 * 55.0) / (5.0 * 15.0) - 6.0 / 5.0;
         assert!((result - expected).abs() < 1e-10);
 
         assert!(
-            (gini(vec![1.0f64, 2.0, 3.0, 4.0, 5.0].into_iter()).unwrap() - expected).abs() < 1e-10
+            (gini(vec![1.0f64, 2.0, 3.0, 4.0, 5.0].into_iter(), None).unwrap() - expected).abs()
+                < 1e-10
         );
     }
 
@@ -2259,8 +2260,8 @@ mod test {
         // All zeros - sum is zero, Gini is undefined
         let mut unsorted = Unsorted::new();
         unsorted.extend(vec![0, 0, 0, 0]);
-        assert_eq!(unsorted.gini(), None);
-        assert_eq!(gini(vec![0, 0, 0, 0].into_iter()), None);
+        assert_eq!(unsorted.gini(None), None);
+        assert_eq!(gini(vec![0, 0, 0, 0].into_iter(), None), None);
     }
 
     #[test]
@@ -2268,21 +2269,21 @@ mod test {
         // Test with negative values (mathematically valid)
         let mut unsorted = Unsorted::new();
         unsorted.extend(vec![-5, -3, -1, 1, 3, 5]);
-        let result = unsorted.gini();
+        let result = unsorted.gini(None);
         // Sum is 0, so Gini is undefined
         assert_eq!(result, None);
 
         // Test with negative values that don't sum to zero
         let mut unsorted = Unsorted::new();
         unsorted.extend(vec![-2, -1, 0, 1, 2]);
-        let result = unsorted.gini();
+        let result = unsorted.gini(None);
         // Sum is 0, so Gini is undefined
         assert_eq!(result, None);
 
         // Test with values that sum to non-zero
         let mut unsorted = Unsorted::new();
         unsorted.extend(vec![-1, 0, 1, 2, 3]);
-        let result = unsorted.gini();
+        let result = unsorted.gini(None);
         assert!(result.is_some());
     }
 
@@ -2291,24 +2292,41 @@ mod test {
         // Test case: [1, 1, 1, 1, 1] - perfect equality
         let mut unsorted = Unsorted::new();
         unsorted.extend(vec![1, 1, 1, 1, 1]);
-        let result = unsorted.gini().unwrap();
+        let result = unsorted.gini(None).unwrap();
         assert!((result - 0.0).abs() < 1e-10);
 
         // Test case: [0, 0, 0, 0, 1] - high inequality
         let mut unsorted = Unsorted::new();
         unsorted.extend(vec![0, 0, 0, 0, 1]);
-        let result = unsorted.gini().unwrap();
+        let result = unsorted.gini(None).unwrap();
         // G = (2 * 5 * 1) / (5 * 1) - 6/5 = 2 - 1.2 = 0.8
         assert!((result - 0.8).abs() < 1e-10);
 
         // Test case: [1, 2, 3] - moderate inequality
         let mut unsorted = Unsorted::new();
         unsorted.extend(vec![1, 2, 3]);
-        let result = unsorted.gini().unwrap();
+        let result = unsorted.gini(None).unwrap();
         // sum = 6, weighted_sum = 1*1 + 2*2 + 3*3 = 1 + 4 + 9 = 14
         // G = (2 * 14) / (3 * 6) - 4/3 = 28/18 - 4/3 = 1.5556 - 1.3333 = 0.2222
         let expected = (2.0 * 14.0) / (3.0 * 6.0) - 4.0 / 3.0;
         assert!((result - expected).abs() < 1e-10);
+    }
+
+    #[test]
+    fn gini_precalc_sum() {
+        // Test with pre-calculated sum
+        let mut unsorted = Unsorted::new();
+        unsorted.extend(vec![1, 2, 3, 4, 5]);
+        let precalc_sum = Some(15.0);
+        let result = unsorted.gini(precalc_sum).unwrap();
+        let expected = (2.0 * 55.0) / (5.0 * 15.0) - 6.0 / 5.0;
+        assert!((result - expected).abs() < 1e-10);
+
+        // Test that pre-calculated sum gives same result
+        let mut unsorted2 = Unsorted::new();
+        unsorted2.extend(vec![1, 2, 3, 4, 5]);
+        let result2 = unsorted2.gini(None).unwrap();
+        assert!((result - result2).abs() < 1e-10);
     }
 
     #[test]
