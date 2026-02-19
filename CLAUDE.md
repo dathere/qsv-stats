@@ -17,7 +17,7 @@ cargo test --lib             # Library tests only
 cargo doc --open             # Generate and view documentation
 ```
 
-MSRV: 1.92 (Rust edition 2024)
+MSRV: 1.93 (Rust edition 2024)
 
 ## Architecture
 
@@ -39,13 +39,13 @@ pub trait Commute: Sized {
 | **unsorted.rs** | `Unsorted<T>` | Collects data, lazily sorts on demand. Median, quartiles (Method 3), mode/antimodes, Gini, kurtosis, Atkinson index, MAD, percentile rank. |
 | **sorted.rs** | — | Statistics on pre-sorted sequences via `BinaryHeap`. |
 | **frequency.rs** | `Frequencies<T>` | Exact frequency counting using `foldhash::HashMap`. Cardinality, most/least frequent. |
-| **minmax.rs** | `MinMax<T>` | Min/max tracking with sort order detection (`sortiness()` returns -1.0 to 1.0). 56-byte struct. |
+| **minmax.rs** | `MinMax<T>` | Min/max tracking with sort order detection (`sortiness()` returns -1.0 to 1.0). |
 
 ### Performance Patterns
 
 - **Parallel threshold:** Datasets >10,000 elements use rayon parallel sort; smaller use sequential.
 - **FMA:** `.mul_add()` used throughout for precision and speed.
-- **Precalculated values:** `gini()`, `kurtosis()`, `atkinson()` accept optional precalculated mean/variance/geometric_sum to avoid redundant computation.
+- **Precalculated values:** `gini()` accepts optional precalculated sum; `kurtosis()` accepts mean/variance; `atkinson()` accepts mean/geometric_sum — avoiding redundant computation.
 - **Lazy sorting:** `Unsorted<T>` defers sorting until a statistic is requested.
 - **Quickselect:** O(n) average selection algorithm used for median/quartile computation.
 
@@ -56,7 +56,7 @@ pub trait Commute: Sized {
 
 ## Testing
 
-Tests are embedded in each module via `#[cfg(test)]` blocks (100+ tests total). Tests cover edge cases including empty data, negative values, zeros, and precision.
+Tests are embedded in each module via `#[cfg(test)]` blocks (190+ tests total). Tests cover edge cases including empty data, negative values, zeros, and precision.
 
 ## Dependencies
 
