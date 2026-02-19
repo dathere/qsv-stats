@@ -41,6 +41,7 @@ where
 /// - Grouped related fields together in hot, warm and cold paths.
 #[allow(clippy::unsafe_derive_deserialize)]
 #[derive(Clone, Copy, Serialize, Deserialize, PartialEq)]
+#[repr(C)]
 pub struct OnlineStats {
     // Hot path - always accessed together (24 bytes)
     size: u64, // 8 bytes - always accessed
@@ -92,7 +93,7 @@ impl OnlineStats {
     /// Return the current variance.
     // https://en.wikipedia.org/wiki/Algorithms_for_calculating_variance
     #[must_use]
-    pub fn variance(&self) -> f64 {
+    pub const fn variance(&self) -> f64 {
         self.q / (self.size as f64)
     }
 
@@ -173,10 +174,8 @@ impl OnlineStats {
         if sample > 0.0 {
             if self.hg_sums {
                 // Fast path: compute harmonic & geometric sums directly
-                // use FMA. equivalent to: self.harmonic_sum += 1.0 / sample
-                self.harmonic_sum = (1.0 / sample).mul_add(1.0, self.harmonic_sum);
-                // use FMA. equivalent to: self.geometric_sum += ln(sample)
-                self.geometric_sum = sample.ln().mul_add(1.0, self.geometric_sum);
+                self.harmonic_sum += 1.0 / sample;
+                self.geometric_sum += sample.ln();
             }
             self.n_positive += 1;
         } else {
@@ -186,7 +185,7 @@ impl OnlineStats {
             } else {
                 self.n_zero += 1;
             }
-            self.hg_sums = self.n_negative == 0 && self.n_zero == 0;
+            self.hg_sums = false;
         }
     }
 
@@ -203,8 +202,8 @@ impl OnlineStats {
         // Handle positive numbers (most common case)
         if sample > 0.0 {
             if self.hg_sums {
-                self.harmonic_sum = (1.0 / sample).mul_add(1.0, self.harmonic_sum);
-                self.geometric_sum = sample.ln().mul_add(1.0, self.geometric_sum);
+                self.harmonic_sum += 1.0 / sample;
+                self.geometric_sum += sample.ln();
             }
             self.n_positive += 1;
         } else {
@@ -214,7 +213,7 @@ impl OnlineStats {
             } else {
                 self.n_zero += 1;
             }
-            self.hg_sums = self.n_negative == 0 && self.n_zero == 0;
+            self.hg_sums = false;
         }
     }
 
