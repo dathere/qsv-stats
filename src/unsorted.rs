@@ -255,7 +255,7 @@ where
     } else if len < PARALLEL_THRESHOLD {
         let mut sum = 0.0;
         for x in data {
-            sum += x.0.to_f64()?;
+            sum += unsafe { x.0.to_f64().unwrap_unchecked() };
         }
         sum
     } else {
@@ -268,7 +268,7 @@ where
     let weighted_sum = if len < PARALLEL_THRESHOLD {
         let mut weighted_sum = 0.0;
         for (i, x) in data.iter().enumerate() {
-            let val = x.0.to_f64()?;
+            let val = unsafe { x.0.to_f64().unwrap_unchecked() };
             weighted_sum += (i + 1) as f64 * val;
         }
         weighted_sum
@@ -319,7 +319,7 @@ where
         let sum: f64 = if len < PARALLEL_THRESHOLD {
             let mut sum = 0.0;
             for x in data {
-                sum += x.0.to_f64()?;
+                sum += unsafe { x.0.to_f64().unwrap_unchecked() };
             }
             sum
         } else {
@@ -341,7 +341,7 @@ where
         let fourth_power_sum = if len < PARALLEL_THRESHOLD {
             let mut sum = 0.0;
             for x in data {
-                let val = x.0.to_f64()?;
+                let val = unsafe { x.0.to_f64().unwrap_unchecked() };
                 let diff = val - mean;
                 let diff_sq = diff * diff;
                 sum += diff_sq * diff_sq;
@@ -366,7 +366,7 @@ where
             let mut fourth_power_sum = 0.0;
 
             for x in data {
-                let val = x.0.to_f64()?;
+                let val = unsafe { x.0.to_f64().unwrap_unchecked() };
                 let diff = val - mean;
                 let diff_sq = diff * diff;
                 variance_sum += diff_sq;
@@ -375,26 +375,18 @@ where
 
             (variance_sum, fourth_power_sum)
         } else {
-            let variance_sum: f64 = data
-                .par_iter()
-                .map(|x| {
-                    let val = unsafe { x.0.to_f64().unwrap_unchecked() };
-                    let diff = val - mean;
-                    diff * diff
-                })
-                .sum();
-
-            let fourth_power_sum: f64 = data
-                .par_iter()
-                .map(|x| {
-                    let val = unsafe { x.0.to_f64().unwrap_unchecked() };
-                    let diff = val - mean;
-                    let diff_sq = diff * diff;
-                    diff_sq * diff_sq
-                })
-                .sum();
-
-            (variance_sum, fourth_power_sum)
+            // Single pass computing both sums simultaneously
+            data.par_iter()
+                .fold(
+                    || (0.0_f64, 0.0_f64),
+                    |acc, x| {
+                        let val = unsafe { x.0.to_f64().unwrap_unchecked() };
+                        let diff = val - mean;
+                        let diff_sq = diff * diff;
+                        (acc.0 + diff_sq, acc.1 + diff_sq * diff_sq)
+                    },
+                )
+                .reduce(|| (0.0, 0.0), |a, b| (a.0 + b.0, a.1 + b.1))
         };
 
         let variance = variance_sum / len as f64;
@@ -504,7 +496,7 @@ where
         let sum: f64 = if len < PARALLEL_THRESHOLD {
             let mut sum = 0.0;
             for x in data {
-                sum += x.0.to_f64()?;
+                sum += unsafe { x.0.to_f64().unwrap_unchecked() };
             }
             sum
         } else {
@@ -528,7 +520,7 @@ where
         } else if len < PARALLEL_THRESHOLD {
             let mut sum = 0.0;
             for x in data {
-                let val = x.0.to_f64()?;
+                let val = unsafe { x.0.to_f64().unwrap_unchecked() };
                 if val <= 0.0 {
                     // Geometric mean undefined for non-positive values
                     return None;
@@ -563,7 +555,7 @@ where
     let sum_powered: f64 = if len < PARALLEL_THRESHOLD {
         let mut sum = 0.0;
         for x in data {
-            let val = x.0.to_f64()?;
+            let val = unsafe { x.0.to_f64().unwrap_unchecked() };
             if val < 0.0 {
                 // Negative values with non-integer exponent are undefined
                 return None;
@@ -1176,18 +1168,14 @@ where
     }
 
     // Estimate capacity using integer square root of size
-    // Integer square root using binary search (faster than floating point sqrt)
-    let sqrt_size = if size == 0 {
-        0
-    } else {
-        let mut x = size;
-        let mut y = x.div_ceil(2);
-        while y < x {
-            x = y;
-            y = usize::midpoint(x, size / x);
-        }
-        x
-    };
+    // Integer square root using Newton's method (faster than floating point sqrt)
+    let mut x = size;
+    let mut y = x.div_ceil(2);
+    while y < x {
+        x = y;
+        y = usize::midpoint(x, size / x);
+    }
+    let sqrt_size = x;
     let mut runs: Vec<(&T, u32)> = Vec::with_capacity(sqrt_size.clamp(16, 1_000));
 
     let mut current_value = &data[0].0;
@@ -1683,7 +1671,7 @@ impl<T: PartialOrd> Default for Unsorted<T> {
     #[inline]
     fn default() -> Unsorted<T> {
         Unsorted {
-            data: Vec::with_capacity(10_000),
+            data: Vec::with_capacity(256),
             sorted: true, // empty is sorted
         }
     }
@@ -1729,12 +1717,12 @@ where
             // Already sorted and unique, use directly without cloning
             percentiles.to_vec()
         } else {
-            // Need to sort and dedup - use HashSet for efficient deduplication
-            use std::collections::HashSet;
-            let mut seen = HashSet::with_capacity(percentiles.len().min(100));
-            let mut sorted_unique = Vec::with_capacity(percentiles.len());
+            // Need to sort and dedup - use fixed-size bool array (domain is 0..=100)
+            let mut seen = [false; 101];
+            let mut sorted_unique = Vec::with_capacity(percentiles.len().min(101));
             for &p in percentiles {
-                if seen.insert(p) {
+                if !seen[p as usize] {
+                    seen[p as usize] = true;
                     sorted_unique.push(p);
                 }
             }
