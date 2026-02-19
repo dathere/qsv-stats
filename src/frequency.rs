@@ -411,4 +411,41 @@ mod test {
         let items_with_5 = freq.items_with_count(5);
         assert!(items_with_5.is_empty()); // No elements appear 5 times
     }
+
+    #[test]
+    fn add_borrowed_inserts_new_key() {
+        let mut freq = Frequencies::<Vec<u8>>::new();
+        freq.add_borrowed(b"hello");
+        assert_eq!(freq.count(&b"hello".to_vec()), 1);
+        assert_eq!(freq.cardinality(), 1);
+    }
+
+    #[test]
+    fn add_borrowed_increments_existing_key() {
+        let mut freq = Frequencies::<Vec<u8>>::new();
+        freq.add_borrowed(b"hello");
+        freq.add_borrowed(b"hello");
+        freq.add_borrowed(b"hello");
+        assert_eq!(freq.count(&b"hello".to_vec()), 3);
+        assert_eq!(freq.cardinality(), 1);
+
+        // Also test increment_by_borrowed
+        freq.increment_by_borrowed(b"world", 5);
+        assert_eq!(freq.count(&b"world".to_vec()), 5);
+        freq.increment_by_borrowed(b"world", 3);
+        assert_eq!(freq.count(&b"world".to_vec()), 8);
+    }
+
+    #[test]
+    fn borrowed_owned_interop_for_same_key() {
+        let mut freq = Frequencies::<Vec<u8>>::new();
+        // Insert via owned add
+        freq.add(b"key".to_vec());
+        // Increment via borrowed add
+        freq.add_borrowed(b"key");
+        freq.increment_by_borrowed(b"key", 3);
+        // All methods should see the same accumulated count
+        assert_eq!(freq.count(&b"key".to_vec()), 5);
+        assert_eq!(freq.cardinality(), 1);
+    }
 }

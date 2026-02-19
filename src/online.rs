@@ -41,7 +41,6 @@ where
 /// - Grouped related fields together in hot, warm and cold paths.
 #[allow(clippy::unsafe_derive_deserialize)]
 #[derive(Clone, Copy, Serialize, Deserialize, PartialEq)]
-#[repr(C)]
 pub struct OnlineStats {
     // Hot path - always accessed together (24 bytes)
     size: u64, // 8 bytes - always accessed

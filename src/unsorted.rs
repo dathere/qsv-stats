@@ -214,20 +214,24 @@ where
         // Sequential processing for small datasets
         let mut vec = Vec::with_capacity(data.len());
         for x in data {
+            // SAFETY: to_f64() always returns Some for standard numeric types (f32/f64, i/u 8-64)
             vec.push((median_obs - unsafe { x.to_f64().unwrap_unchecked() }).abs());
         }
         vec
     } else {
         // Parallel processing for large datasets
         data.par_iter()
+            // SAFETY: to_f64() always returns Some for standard numeric types
             .map(|x| (median_obs - unsafe { x.to_f64().unwrap_unchecked() }).abs())
             .collect()
     };
 
     // Use adaptive sorting based on size
     if abs_diff_vec.len() < PARALLEL_THRESHOLD {
+        // SAFETY: partial_cmp on non-NaN f64 (from abs()) always returns Some
         abs_diff_vec.sort_unstable_by(|a, b| unsafe { a.partial_cmp(b).unwrap_unchecked() });
     } else {
+        // SAFETY: partial_cmp on non-NaN f64 (from abs()) always returns Some
         abs_diff_vec.par_sort_unstable_by(|a, b| unsafe { a.partial_cmp(b).unwrap_unchecked() });
     }
     median_on_sorted(&abs_diff_vec)
@@ -255,11 +259,13 @@ where
     } else if len < PARALLEL_THRESHOLD {
         let mut sum = 0.0;
         for x in data {
+            // SAFETY: to_f64() always returns Some for standard numeric types (f32/f64, i/u 8-64)
             sum += unsafe { x.0.to_f64().unwrap_unchecked() };
         }
         sum
     } else {
         data.par_iter()
+            // SAFETY: to_f64() always returns Some for standard numeric types
             .map(|x| unsafe { x.0.to_f64().unwrap_unchecked() })
             .sum()
     };
@@ -268,6 +274,7 @@ where
     let weighted_sum = if len < PARALLEL_THRESHOLD {
         let mut weighted_sum = 0.0;
         for (i, x) in data.iter().enumerate() {
+            // SAFETY: to_f64() always returns Some for standard numeric types
             let val = unsafe { x.0.to_f64().unwrap_unchecked() };
             weighted_sum += (i + 1) as f64 * val;
         }
@@ -277,6 +284,7 @@ where
         data.par_iter()
             .enumerate()
             .map(|(i, x)| {
+                // SAFETY: to_f64() always returns Some for standard numeric types
                 let val = unsafe { x.0.to_f64().unwrap_unchecked() };
                 (i + 1) as f64 * val
             })
@@ -319,11 +327,13 @@ where
         let sum: f64 = if len < PARALLEL_THRESHOLD {
             let mut sum = 0.0;
             for x in data {
+                // SAFETY: to_f64() always returns Some for standard numeric types (f32/f64, i/u 8-64)
                 sum += unsafe { x.0.to_f64().unwrap_unchecked() };
             }
             sum
         } else {
             data.par_iter()
+                // SAFETY: to_f64() always returns Some for standard numeric types
                 .map(|x| unsafe { x.0.to_f64().unwrap_unchecked() })
                 .sum()
         };
@@ -341,6 +351,7 @@ where
         let fourth_power_sum = if len < PARALLEL_THRESHOLD {
             let mut sum = 0.0;
             for x in data {
+                // SAFETY: to_f64() always returns Some for standard numeric types
                 let val = unsafe { x.0.to_f64().unwrap_unchecked() };
                 let diff = val - mean;
                 let diff_sq = diff * diff;
@@ -350,6 +361,7 @@ where
         } else {
             data.par_iter()
                 .map(|x| {
+                    // SAFETY: to_f64() always returns Some for standard numeric types
                     let val = unsafe { x.0.to_f64().unwrap_unchecked() };
                     let diff = val - mean;
                     let diff_sq = diff * diff;
@@ -366,6 +378,7 @@ where
             let mut fourth_power_sum = 0.0;
 
             for x in data {
+                // SAFETY: to_f64() always returns Some for standard numeric types
                 let val = unsafe { x.0.to_f64().unwrap_unchecked() };
                 let diff = val - mean;
                 let diff_sq = diff * diff;
@@ -380,6 +393,7 @@ where
                 .fold(
                     || (0.0_f64, 0.0_f64),
                     |acc, x| {
+                        // SAFETY: to_f64() always returns Some for standard numeric types
                         let val = unsafe { x.0.to_f64().unwrap_unchecked() };
                         let diff = val - mean;
                         let diff_sq = diff * diff;
@@ -496,11 +510,13 @@ where
         let sum: f64 = if len < PARALLEL_THRESHOLD {
             let mut sum = 0.0;
             for x in data {
+                // SAFETY: to_f64() always returns Some for standard numeric types (f32/f64, i/u 8-64)
                 sum += unsafe { x.0.to_f64().unwrap_unchecked() };
             }
             sum
         } else {
             data.par_iter()
+                // SAFETY: to_f64() always returns Some for standard numeric types
                 .map(|x| unsafe { x.0.to_f64().unwrap_unchecked() })
                 .sum()
         };
@@ -520,6 +536,7 @@ where
         } else if len < PARALLEL_THRESHOLD {
             let mut sum = 0.0;
             for x in data {
+                // SAFETY: to_f64() always returns Some for standard numeric types
                 let val = unsafe { x.0.to_f64().unwrap_unchecked() };
                 if val <= 0.0 {
                     // Geometric mean undefined for non-positive values
@@ -531,6 +548,7 @@ where
         } else {
             data.par_iter()
                 .map(|x| {
+                    // SAFETY: to_f64() always returns Some for standard numeric types
                     let val = unsafe { x.0.to_f64().unwrap_unchecked() };
                     if val <= 0.0 {
                         return f64::NAN;
@@ -555,6 +573,7 @@ where
     let sum_powered: f64 = if len < PARALLEL_THRESHOLD {
         let mut sum = 0.0;
         for x in data {
+            // SAFETY: to_f64() always returns Some for standard numeric types
             let val = unsafe { x.0.to_f64().unwrap_unchecked() };
             if val < 0.0 {
                 // Negative values with non-integer exponent are undefined
@@ -567,6 +586,7 @@ where
     } else {
         data.par_iter()
             .map(|x| {
+                // SAFETY: to_f64() always returns Some for standard numeric types
                 let val = unsafe { x.0.to_f64().unwrap_unchecked() };
                 if val < 0.0 {
                     return f64::NAN;
