@@ -1,6 +1,7 @@
-use foldhash::{HashMap, HashMapExt};
 use std::collections::hash_map::{Entry, Keys};
 use std::hash::Hash;
+
+use foldhash::{HashMap, HashMapExt};
 
 use rayon::prelude::*;
 
@@ -231,6 +232,31 @@ impl<T: Eq + Hash> Frequencies<T> {
     }
 }
 
+impl Frequencies<Vec<u8>> {
+    /// Increment count for a byte slice key, avoiding allocation when key exists.
+    /// Uses borrowed lookup via `get_mut(&[u8])` before falling back to owned insert.
+    /// This works because `Vec<u8>: Borrow<[u8]>`, so HashMap accepts `&[u8]` for lookup.
+    /// For low-cardinality columns (the common case), this eliminates ~99% of allocations.
+    #[inline]
+    pub fn add_borrowed(&mut self, v: &[u8]) {
+        if let Some(count) = self.data.get_mut(v) {
+            *count += 1;
+        } else {
+            self.data.insert(v.to_vec(), 1);
+        }
+    }
+
+    /// Increment by a count for a byte slice key, avoiding allocation when key exists.
+    #[inline]
+    pub fn increment_by_borrowed(&mut self, v: &[u8], count: u64) {
+        if let Some(existing) = self.data.get_mut(v) {
+            *existing += count;
+        } else {
+            self.data.insert(v.to_vec(), count);
+        }
+    }
+}
+
 impl<T: Eq + Hash> Commute for Frequencies<T> {
     #[inline]
     fn merge(&mut self, v: Frequencies<T>) {
@@ -384,5 +410,42 @@ mod test {
 
         let items_with_5 = freq.items_with_count(5);
         assert!(items_with_5.is_empty()); // No elements appear 5 times
+    }
+
+    #[test]
+    fn add_borrowed_inserts_new_key() {
+        let mut freq = Frequencies::<Vec<u8>>::new();
+        freq.add_borrowed(b"hello");
+        assert_eq!(freq.count(&b"hello".to_vec()), 1);
+        assert_eq!(freq.cardinality(), 1);
+    }
+
+    #[test]
+    fn add_borrowed_increments_existing_key() {
+        let mut freq = Frequencies::<Vec<u8>>::new();
+        freq.add_borrowed(b"hello");
+        freq.add_borrowed(b"hello");
+        freq.add_borrowed(b"hello");
+        assert_eq!(freq.count(&b"hello".to_vec()), 3);
+        assert_eq!(freq.cardinality(), 1);
+
+        // Also test increment_by_borrowed
+        freq.increment_by_borrowed(b"world", 5);
+        assert_eq!(freq.count(&b"world".to_vec()), 5);
+        freq.increment_by_borrowed(b"world", 3);
+        assert_eq!(freq.count(&b"world".to_vec()), 8);
+    }
+
+    #[test]
+    fn borrowed_owned_interop_for_same_key() {
+        let mut freq = Frequencies::<Vec<u8>>::new();
+        // Insert via owned add
+        freq.add(b"key".to_vec());
+        // Increment via borrowed add
+        freq.add_borrowed(b"key");
+        freq.increment_by_borrowed(b"key", 3);
+        // All methods should see the same accumulated count
+        assert_eq!(freq.count(&b"key".to_vec()), 5);
+        assert_eq!(freq.cardinality(), 1);
     }
 }
