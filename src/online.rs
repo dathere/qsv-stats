@@ -89,7 +89,7 @@ impl OnlineStats {
         self.variance().sqrt()
     }
 
-    /// Return the current variance.
+    /// Return the current population variance (using N denominator, not N-1).
     // https://en.wikipedia.org/wiki/Algorithms_for_calculating_variance
     #[must_use]
     pub const fn variance(&self) -> f64 {
@@ -111,11 +111,13 @@ impl OnlineStats {
     pub fn geometric_mean(&self) -> f64 {
         if self.is_empty()
             || self.n_negative > 0
-            || self.geometric_sum.is_infinite()
             || self.geometric_sum.is_nan()
+            || self.geometric_sum == f64::INFINITY
         {
             f64::NAN
-        } else if self.n_zero > 0 {
+        } else if self.n_zero > 0 || self.geometric_sum == f64::NEG_INFINITY {
+            // geometric_sum == -Inf means data values approach zero;
+            // geometric mean correctly approaches 0.0 in that limit
             0.0
         } else {
             (self.geometric_sum / (self.size as f64)).exp()
@@ -229,7 +231,8 @@ impl OnlineStats {
     }
 
     /// Add a new NULL value to the population.
-    /// This increases the population size by `1`.
+    /// This increases the population size by `1` and treats null as `0.0`,
+    /// which increments `n_zero` and disables harmonic/geometric sum tracking.
     #[inline]
     pub fn add_null(&mut self) {
         self.add_f64(0.0);
@@ -264,10 +267,9 @@ impl Commute for OnlineStats {
 
         self.size += v.size;
 
-        //self.mean = ((s1 * self.mean) + (s2 * v.mean)) / (s1 + s2);
-        // below is the fused multiply add version of the statement above
-        // its more performant as we're taking advantage of a CPU instruction
-        self.mean = s1.mul_add(self.mean, s2 * v.mean) / total;
+        // Incremental form avoids forming large intermediate products,
+        // preventing catastrophic cancellation when means are large and similar
+        self.mean = (v.mean - self.mean).mul_add(s2 / total, self.mean);
 
         // self.q += v.q + meandiffsq * s1 * s2 / (s1 + s2);
         // below is the fused multiply add version of the statement above

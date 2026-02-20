@@ -264,8 +264,19 @@ where
         return Some(0.0);
     }
 
+    // Gini coefficient is only defined for non-negative distributions.
+    // Since data is sorted, check the first (smallest) element.
+    // SAFETY: len > 1 guaranteed by checks above
+    let first_val = unsafe { data.get_unchecked(0).0.to_f64().unwrap_unchecked() };
+    if first_val < 0.0 {
+        return None;
+    }
+
     // Use pre-calculated sum if provided, otherwise compute it
     let sum = if let Some(precalc) = precalc_sum {
+        if precalc < 0.0 {
+            return None;
+        }
         precalc
     } else if len < PARALLEL_THRESHOLD {
         let mut sum = 0.0;
@@ -470,7 +481,7 @@ where
             // Count all equal values after idx
             for x in data.iter().skip(idx + 1) {
                 if let Some(x_val) = x.0.to_f64() {
-                    if (x_val - value_f64).abs() < 1e-9 * value_f64.abs().max(1.0) {
+                    if x_val.total_cmp(&value_f64).is_eq() {
                         count += 1;
                     } else {
                         break;
@@ -2386,11 +2397,12 @@ mod test {
         // Sum is 0, so Gini is undefined
         assert_eq!(result, None);
 
-        // Test with values that sum to non-zero
+        // Test with values containing negatives that sum to non-zero
+        // Gini is undefined for negative values, should return None
         let mut unsorted = Unsorted::new();
         unsorted.extend(vec![-1, 0, 1, 2, 3]);
         let result = unsorted.gini(None);
-        assert!(result.is_some());
+        assert_eq!(result, None);
     }
 
     #[test]
@@ -2507,15 +2519,17 @@ mod test {
 
     #[test]
     fn gini_precalc_sum_negative() {
-        // Test with negative sum
-        // The function only checks if sum == 0.0, not if sum < 0.0
-        // So negative sums will still compute Gini (though mathematically questionable)
+        // Gini is undefined for negative values, should return None
         let mut unsorted = Unsorted::new();
         unsorted.extend(vec![-5, -3, -1, 1, 3]);
         let result = unsorted.gini(None);
-        // Sum is -5, function doesn't check for negative, so it computes Gini
-        // This is technically invalid but the function allows it
-        assert!(result.is_some());
+        assert_eq!(result, None);
+
+        // Negative precalculated sum should also return None
+        let mut unsorted = Unsorted::new();
+        unsorted.extend(vec![1, 2, 3]);
+        let result = unsorted.gini(Some(-5.0));
+        assert_eq!(result, None);
     }
 
     #[test]
