@@ -210,14 +210,13 @@ where
     let median_obs = precalc_median.unwrap_or_else(|| median_on_sorted(data).unwrap());
 
     // Use adaptive parallel processing based on data size
-    let mut abs_diff_vec = if data.len() < PARALLEL_THRESHOLD {
+    let mut abs_diff_vec: Vec<f64> = if data.len() < PARALLEL_THRESHOLD {
         // Sequential processing for small datasets
-        let mut vec = Vec::with_capacity(data.len());
-        for x in data {
+        // Iterator collect enables TrustedLen optimization, eliminating per-element bounds checks
+        data.iter()
             // SAFETY: to_f64() always returns Some for standard numeric types (f32/f64, i/u 8-64)
-            vec.push((median_obs - unsafe { x.to_f64().unwrap_unchecked() }).abs());
-        }
-        vec
+            .map(|x| (median_obs - unsafe { x.to_f64().unwrap_unchecked() }).abs())
+            .collect()
     } else {
         // Parallel processing for large datasets
         data.par_iter()
@@ -279,12 +278,11 @@ where
         }
         precalc
     } else if len < PARALLEL_THRESHOLD {
-        let mut sum = 0.0;
-        for x in data {
+        // Iterator sum enables auto-vectorization (SIMD) by the compiler
+        data.iter()
             // SAFETY: to_f64() always returns Some for standard numeric types (f32/f64, i/u 8-64)
-            sum += unsafe { x.0.to_f64().unwrap_unchecked() };
-        }
-        sum
+            .map(|x| unsafe { x.0.to_f64().unwrap_unchecked() })
+            .sum()
     } else {
         data.par_iter()
             // SAFETY: to_f64() always returns Some for standard numeric types
@@ -347,12 +345,11 @@ where
         precalc
     } else {
         let sum: f64 = if len < PARALLEL_THRESHOLD {
-            let mut sum = 0.0;
-            for x in data {
+            // Iterator sum enables auto-vectorization (SIMD) by the compiler
+            data.iter()
                 // SAFETY: to_f64() always returns Some for standard numeric types (f32/f64, i/u 8-64)
-                sum += unsafe { x.0.to_f64().unwrap_unchecked() };
-            }
-            sum
+                .map(|x| unsafe { x.0.to_f64().unwrap_unchecked() })
+                .sum()
         } else {
             data.par_iter()
                 // SAFETY: to_f64() always returns Some for standard numeric types
@@ -534,12 +531,11 @@ where
         precalc
     } else {
         let sum: f64 = if len < PARALLEL_THRESHOLD {
-            let mut sum = 0.0;
-            for x in data {
+            // Iterator sum enables auto-vectorization (SIMD) by the compiler
+            data.iter()
                 // SAFETY: to_f64() always returns Some for standard numeric types (f32/f64, i/u 8-64)
-                sum += unsafe { x.0.to_f64().unwrap_unchecked() };
-            }
-            sum
+                .map(|x| unsafe { x.0.to_f64().unwrap_unchecked() })
+                .sum()
         } else {
             data.par_iter()
                 // SAFETY: to_f64() always returns Some for standard numeric types
@@ -633,6 +629,7 @@ where
 
 /// Selection algorithm to find the k-th smallest element in O(n) average time.
 /// This is an implementation of quickselect algorithm.
+#[cfg(test)]
 fn quickselect<T>(data: &mut [Partial<T>], k: usize) -> Option<&T>
 where
     T: PartialOrd,
@@ -661,41 +658,8 @@ where
     }
 }
 
-/// Zero-copy selection algorithm that works with indices instead of copying data.
-/// This avoids the overhead of cloning data elements.
-fn quickselect_by_index<'a, T>(
-    data: &'a [Partial<T>],
-    indices: &mut [usize],
-    k: usize,
-) -> Option<&'a T>
-where
-    T: PartialOrd,
-{
-    if data.is_empty() || indices.is_empty() || k >= indices.len() {
-        return None;
-    }
-
-    let mut left = 0;
-    let mut right = indices.len() - 1;
-
-    loop {
-        if left == right {
-            return Some(&data[indices[left]].0);
-        }
-
-        // Use median-of-three pivot selection for better performance
-        let pivot_idx = median_of_three_pivot_by_index(data, indices, left, right);
-        let pivot_idx = partition_by_index(data, indices, left, right, pivot_idx);
-
-        match k.cmp(&pivot_idx) {
-            std::cmp::Ordering::Equal => return Some(&data[indices[pivot_idx]].0),
-            std::cmp::Ordering::Less => right = pivot_idx - 1,
-            std::cmp::Ordering::Greater => left = pivot_idx + 1,
-        }
-    }
-}
-
 /// Select the median of three elements as pivot for better quickselect performance
+#[cfg(test)]
 fn median_of_three_pivot<T>(data: &[Partial<T>], left: usize, right: usize) -> usize
 where
     T: PartialOrd,
@@ -719,36 +683,8 @@ where
     }
 }
 
-/// Select the median of three elements as pivot using indices
-fn median_of_three_pivot_by_index<T>(
-    data: &[Partial<T>],
-    indices: &[usize],
-    left: usize,
-    right: usize,
-) -> usize
-where
-    T: PartialOrd,
-{
-    let mid = left + (right - left) / 2;
-
-    if data[indices[left]] <= data[indices[mid]] {
-        if data[indices[mid]] <= data[indices[right]] {
-            mid
-        } else if data[indices[left]] <= data[indices[right]] {
-            right
-        } else {
-            left
-        }
-    } else if data[indices[left]] <= data[indices[right]] {
-        left
-    } else if data[indices[mid]] <= data[indices[right]] {
-        right
-    } else {
-        mid
-    }
-}
-
 /// Partition function for quickselect
+#[cfg(test)]
 fn partition<T>(data: &mut [Partial<T>], left: usize, right: usize, pivot_idx: usize) -> usize
 where
     T: PartialOrd,
@@ -770,43 +706,6 @@ where
 
     // Move pivot to its final place
     data.swap(store_idx, right);
-    store_idx
-}
-
-/// Partition function for quickselect using indices
-fn partition_by_index<T>(
-    data: &[Partial<T>],
-    indices: &mut [usize],
-    left: usize,
-    right: usize,
-    pivot_idx: usize,
-) -> usize
-where
-    T: PartialOrd,
-{
-    // Move pivot to end
-    indices.swap(pivot_idx, right);
-    let mut store_idx = left;
-
-    // Cache pivot index and value for better cache locality
-    // This reduces indirection: indices[right] -> data[indices[right]]
-    // Safety: right is guaranteed to be in bounds
-    let pivot_idx_cached = unsafe { *indices.get_unchecked(right) };
-    let pivot_val = unsafe { data.get_unchecked(pivot_idx_cached) };
-
-    // Move all elements smaller than pivot to the left
-    let mut elem_idx: usize;
-    for i in left..right {
-        // Safety: i and store_idx are guaranteed to be in bounds
-        elem_idx = unsafe { *indices.get_unchecked(i) };
-        if unsafe { data.get_unchecked(elem_idx) <= pivot_val } {
-            indices.swap(i, store_idx);
-            store_idx += 1;
-        }
-    }
-
-    // Move pivot to its final place
-    indices.swap(store_idx, right);
     store_idx
 }
 
@@ -931,100 +830,14 @@ where
     }
 }
 
-/// Compute quartiles using selection algorithm in O(n) time instead of O(n log n) sorting.
-/// This implementation follows Method 3 from `<https://en.wikipedia.org/wiki/Quartile>`
-fn quartiles_with_selection<T>(data: &mut [Partial<T>]) -> Option<(f64, f64, f64)>
-where
-    T: PartialOrd + ToPrimitive,
-{
-    let len = data.len();
-
-    // Early return for small arrays
-    match len {
-        0..=2 => return None,
-        3 => {
-            // For 3 elements, we need to find the sorted order using selection
-            let min_val = quickselect(data, 0)?.to_f64()?;
-            let med_val = quickselect(data, 1)?.to_f64()?;
-            let max_val = quickselect(data, 2)?.to_f64()?;
-            return Some((min_val, med_val, max_val));
-        }
-        _ => {}
-    }
-
-    // Calculate k and remainder in one division
-    let k = len / 4;
-    let remainder = len % 4;
-
-    // Use selection algorithm to find the required order statistics
-    match remainder {
-        0 => {
-            // Length is multiple of 4 (4k)
-            // Q1 = (x_{k-1} + x_k) / 2
-            // Q2 = (x_{2k-1} + x_{2k}) / 2
-            // Q3 = (x_{3k-1} + x_{3k}) / 2
-            let q1_low = quickselect(data, k - 1)?.to_f64()?;
-            let q1_high = quickselect(data, k)?.to_f64()?;
-            let q1 = f64::midpoint(q1_low, q1_high);
-
-            let q2_low = quickselect(data, 2 * k - 1)?.to_f64()?;
-            let q2_high = quickselect(data, 2 * k)?.to_f64()?;
-            let q2 = f64::midpoint(q2_low, q2_high);
-
-            let q3_low = quickselect(data, 3 * k - 1)?.to_f64()?;
-            let q3_high = quickselect(data, 3 * k)?.to_f64()?;
-            let q3 = f64::midpoint(q3_low, q3_high);
-
-            Some((q1, q2, q3))
-        }
-        1 => {
-            // Length is 4k + 1
-            // Q1 = (x_{k-1} + x_k) / 2
-            // Q2 = x_{2k}
-            // Q3 = (x_{3k} + x_{3k+1}) / 2
-            let q1_low = quickselect(data, k - 1)?.to_f64()?;
-            let q1_high = quickselect(data, k)?.to_f64()?;
-            let q1 = f64::midpoint(q1_low, q1_high);
-
-            let q2 = quickselect(data, 2 * k)?.to_f64()?;
-
-            let q3_low = quickselect(data, 3 * k)?.to_f64()?;
-            let q3_high = quickselect(data, 3 * k + 1)?.to_f64()?;
-            let q3 = f64::midpoint(q3_low, q3_high);
-
-            Some((q1, q2, q3))
-        }
-        2 => {
-            // Length is 4k + 2
-            // Q1 = x_k
-            // Q2 = (x_{2k} + x_{2k+1}) / 2
-            // Q3 = x_{3k+1}
-            let q1 = quickselect(data, k)?.to_f64()?;
-
-            let q2_low = quickselect(data, 2 * k)?.to_f64()?;
-            let q2_high = quickselect(data, 2 * k + 1)?.to_f64()?;
-            let q2 = f64::midpoint(q2_low, q2_high);
-
-            let q3 = quickselect(data, 3 * k + 1)?.to_f64()?;
-
-            Some((q1, q2, q3))
-        }
-        _ => {
-            // Length is 4k + 3
-            // Q1 = x_k
-            // Q2 = x_{2k+1}
-            // Q3 = x_{3k+2}
-            let q1 = quickselect(data, k)?.to_f64()?;
-            let q2 = quickselect(data, 2 * k + 1)?.to_f64()?;
-            let q3 = quickselect(data, 3 * k + 2)?.to_f64()?;
-
-            Some((q1, q2, q3))
-        }
-    }
-}
-
 /// Zero-copy quartiles computation using index-based selection.
 /// This avoids copying data by working with an array of indices.
+///
+/// Uses `select_nth_unstable_by` on the indices array, which partitions in-place.
+/// After selecting position p, elements at indices [0..p] are <= the p-th element
+/// and elements at [p+1..] are >= it. By selecting positions in ascending order,
+/// each subsequent selection only needs to search within the right partition,
+/// avoiding redundant O(n) resets.
 fn quartiles_with_zero_copy_selection<T>(data: &[Partial<T>]) -> Option<(f64, f64, f64)>
 where
     T: PartialOrd + ToPrimitive,
@@ -1035,96 +848,75 @@ where
     match len {
         0..=2 => return None,
         3 => {
-            // For 3 elements, create indices and find sorted order
-            let mut indices = vec![0, 1, 2];
-            let min_val = quickselect_by_index(data, &mut indices, 0)?.to_f64()?;
-            let med_val = quickselect_by_index(data, &mut indices, 1)?.to_f64()?;
-            let max_val = quickselect_by_index(data, &mut indices, 2)?.to_f64()?;
+            let mut indices: Vec<usize> = (0..3).collect();
+            let cmp =
+                |a: &usize, b: &usize| data[*a].partial_cmp(&data[*b]).unwrap_or(std::cmp::Ordering::Less);
+            indices.sort_unstable_by(cmp);
+            let min_val = data[indices[0]].0.to_f64()?;
+            let med_val = data[indices[1]].0.to_f64()?;
+            let max_val = data[indices[2]].0.to_f64()?;
             return Some((min_val, med_val, max_val));
         }
         _ => {}
     }
 
-    // Calculate k and remainder in one division
     let k = len / 4;
     let remainder = len % 4;
 
-    // Allocate indices array once and reuse it by resetting after each call
-    let indices_template: Vec<usize> = (0..len).collect();
-    let mut indices: Vec<usize> = indices_template.clone();
+    let mut indices: Vec<usize> = (0..len).collect();
+    let cmp = |a: &usize, b: &usize| {
+        data[*a]
+            .partial_cmp(&data[*b])
+            .unwrap_or(std::cmp::Ordering::Less)
+    };
 
-    // Use zero-copy selection algorithm to find the required order statistics
-    // Note: Each quickselect_by_index call mutates the indices array, so we need
-    // to reset it for each call to ensure correctness.
+    // Collect the unique positions we need in ascending order.
+    // By selecting in ascending order, each select_nth_unstable_by partitions
+    // the array so subsequent selections operate on progressively smaller slices.
+    // We deduplicate because adjacent quartile boundaries can overlap for small k.
+    let raw_positions: Vec<usize> = match remainder {
+        0 => vec![k - 1, k, 2 * k - 1, 2 * k, 3 * k - 1, 3 * k],
+        1 => vec![k - 1, k, 2 * k, 3 * k, 3 * k + 1],
+        2 => vec![k, 2 * k, 2 * k + 1, 3 * k + 1],
+        _ => vec![k, 2 * k + 1, 3 * k + 2],
+    };
+
+    let mut unique_positions = raw_positions.clone();
+    unique_positions.dedup();
+
+    // Select each unique position in ascending order, narrowing the search range
+    let mut start = 0;
+    for &pos in &unique_positions {
+        indices[start..].select_nth_unstable_by(pos - start, &cmp);
+        start = pos + 1;
+    }
+
+    // Now read all needed values (including duplicates) from the partitioned indices
+    let values: Vec<f64> = raw_positions
+        .iter()
+        .map(|&pos| data[indices[pos]].0.to_f64())
+        .collect::<Option<Vec<_>>>()?;
+
     match remainder {
         0 => {
-            // Length is multiple of 4 (4k)
-            indices.copy_from_slice(&indices_template);
-            let q1_low = quickselect_by_index(data, &mut indices, k - 1)?.to_f64()?;
-            indices.copy_from_slice(&indices_template);
-            let q1_high = quickselect_by_index(data, &mut indices, k)?.to_f64()?;
-            let q1 = f64::midpoint(q1_low, q1_high);
-
-            indices.copy_from_slice(&indices_template);
-            let q2_low = quickselect_by_index(data, &mut indices, 2 * k - 1)?.to_f64()?;
-            indices.copy_from_slice(&indices_template);
-            let q2_high = quickselect_by_index(data, &mut indices, 2 * k)?.to_f64()?;
-            let q2 = f64::midpoint(q2_low, q2_high);
-
-            indices.copy_from_slice(&indices_template);
-            let q3_low = quickselect_by_index(data, &mut indices, 3 * k - 1)?.to_f64()?;
-            indices.copy_from_slice(&indices_template);
-            let q3_high = quickselect_by_index(data, &mut indices, 3 * k)?.to_f64()?;
-            let q3 = f64::midpoint(q3_low, q3_high);
-
+            let q1 = f64::midpoint(values[0], values[1]);
+            let q2 = f64::midpoint(values[2], values[3]);
+            let q3 = f64::midpoint(values[4], values[5]);
             Some((q1, q2, q3))
         }
         1 => {
-            // Length is 4k + 1
-            indices.copy_from_slice(&indices_template);
-            let q1_low = quickselect_by_index(data, &mut indices, k - 1)?.to_f64()?;
-            indices.copy_from_slice(&indices_template);
-            let q1_high = quickselect_by_index(data, &mut indices, k)?.to_f64()?;
-            let q1 = f64::midpoint(q1_low, q1_high);
-
-            indices.copy_from_slice(&indices_template);
-            let q2 = quickselect_by_index(data, &mut indices, 2 * k)?.to_f64()?;
-
-            indices.copy_from_slice(&indices_template);
-            let q3_low = quickselect_by_index(data, &mut indices, 3 * k)?.to_f64()?;
-            indices.copy_from_slice(&indices_template);
-            let q3_high = quickselect_by_index(data, &mut indices, 3 * k + 1)?.to_f64()?;
-            let q3 = f64::midpoint(q3_low, q3_high);
-
+            let q1 = f64::midpoint(values[0], values[1]);
+            let q2 = values[2];
+            let q3 = f64::midpoint(values[3], values[4]);
             Some((q1, q2, q3))
         }
         2 => {
-            // Length is 4k + 2
-            indices.copy_from_slice(&indices_template);
-            let q1 = quickselect_by_index(data, &mut indices, k)?.to_f64()?;
-
-            indices.copy_from_slice(&indices_template);
-            let q2_low = quickselect_by_index(data, &mut indices, 2 * k)?.to_f64()?;
-            indices.copy_from_slice(&indices_template);
-            let q2_high = quickselect_by_index(data, &mut indices, 2 * k + 1)?.to_f64()?;
-            let q2 = f64::midpoint(q2_low, q2_high);
-
-            indices.copy_from_slice(&indices_template);
-            let q3 = quickselect_by_index(data, &mut indices, 3 * k + 1)?.to_f64()?;
-
+            let q1 = values[0];
+            let q2 = f64::midpoint(values[1], values[2]);
+            let q3 = values[3];
             Some((q1, q2, q3))
         }
-        _ => {
-            // Length is 4k + 3
-            indices.copy_from_slice(&indices_template);
-            let q1 = quickselect_by_index(data, &mut indices, k)?.to_f64()?;
-            indices.copy_from_slice(&indices_template);
-            let q2 = quickselect_by_index(data, &mut indices, 2 * k + 1)?.to_f64()?;
-            indices.copy_from_slice(&indices_template);
-            let q3 = quickselect_by_index(data, &mut indices, 3 * k + 2)?.to_f64()?;
-
-            Some((q1, q2, q3))
-        }
+        _ => Some((values[0], values[1], values[2])),
     }
 }
 
@@ -1261,43 +1053,30 @@ where
         return ((Vec::new(), 0, 0), (antimodes, total_count, 1));
     }
 
-    // Estimate capacities based on the number of runs
-    // For modes: typically 1-3 modes, rarely more than 10% of runs
-    // For antimodes: we only collect up to 10, but need to count all
+    // Collect modes and antimodes directly in a single pass, cloning values immediately
+    // instead of collecting indices first and then cloning in a second pass
     let estimated_modes = (runs.len() / 10).clamp(1, 10);
     let estimated_antimodes = 10.min(runs.len());
 
-    // Collect indices first to avoid unnecessary cloning
-    let mut modes_indices = Vec::with_capacity(estimated_modes);
-    let mut antimodes_indices = Vec::with_capacity(estimated_antimodes);
+    let mut modes_result = Vec::with_capacity(estimated_modes);
+    let mut antimodes_result = Vec::with_capacity(estimated_antimodes);
     let mut mode_count = 0;
     let mut antimodes_count = 0;
     let mut antimodes_collected = 0_u32;
 
-    // Count and collect mode/antimode indices simultaneously
-    for (idx, (_, count)) in runs.iter().enumerate() {
+    for (val, count) in &runs {
         if *count == highest_count {
-            modes_indices.push(idx);
+            modes_result.push((*val).clone());
             mode_count += 1;
         }
         if *count == lowest_count {
             antimodes_count += 1;
             if antimodes_collected < 10 {
-                antimodes_indices.push(idx);
+                antimodes_result.push((*val).clone());
                 antimodes_collected += 1;
             }
         }
     }
-
-    // Extract values only for the indices we need, cloning only at the end
-    let modes_result: Vec<T> = modes_indices
-        .into_iter()
-        .map(|idx| runs[idx].0.clone())
-        .collect();
-    let antimodes_result: Vec<T> = antimodes_indices
-        .into_iter()
-        .map(|idx| runs[idx].0.clone())
-        .collect();
 
     (
         (modes_result, mode_count, highest_count),
@@ -1687,14 +1466,8 @@ impl<T: PartialOrd + ToPrimitive + Clone + Send> Unsorted<T> {
         if self.data.is_empty() {
             return None;
         }
-        // If data is already sorted, use zero-copy approach to avoid cloning
-        if self.sorted {
-            return quartiles_with_zero_copy_selection(&self.data);
-        }
-        // Create a copy using collect to avoid mutating the original for selection algorithm
-        let mut data_copy: Vec<Partial<T>> =
-            self.data.iter().map(|x| Partial(x.0.clone())).collect();
-        quartiles_with_selection(&mut data_copy)
+        // Use zero-copy approach (indices-based) to avoid cloning all elements
+        quartiles_with_zero_copy_selection(&self.data)
     }
 }
 

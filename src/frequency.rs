@@ -56,13 +56,10 @@ impl<T: Eq + Hash> Frequencies<T> {
         self.len() as u64
     }
 
-    /// Return a `Vec` of elements, their corresponding counts in
-    /// descending order, and the total count.
-    #[inline]
-    #[must_use]
-    pub fn most_frequent(&self) -> (Vec<(&T, u64)>, u64) {
+    /// Collect counts and total in a single pass, reused by most/least_frequent.
+    fn collect_counts(&self) -> (Vec<(&T, u64)>, u64) {
         let mut total_count = 0u64;
-        let mut counts: Vec<(&T, u64)> = self
+        let counts: Vec<(&T, u64)> = self
             .data
             .iter()
             .map(|(k, &v)| {
@@ -70,6 +67,15 @@ impl<T: Eq + Hash> Frequencies<T> {
                 (k, v)
             })
             .collect();
+        (counts, total_count)
+    }
+
+    /// Return a `Vec` of elements, their corresponding counts in
+    /// descending order, and the total count.
+    #[inline]
+    #[must_use]
+    pub fn most_frequent(&self) -> (Vec<(&T, u64)>, u64) {
+        let (mut counts, total_count) = self.collect_counts();
         counts.sort_unstable_by(|&(_, c1), &(_, c2)| c2.cmp(&c1));
         (counts, total_count)
     }
@@ -79,15 +85,7 @@ impl<T: Eq + Hash> Frequencies<T> {
     #[inline]
     #[must_use]
     pub fn least_frequent(&self) -> (Vec<(&T, u64)>, u64) {
-        let mut total_count = 0u64;
-        let mut counts: Vec<(&T, u64)> = self
-            .data
-            .iter()
-            .map(|(k, &v)| {
-                total_count += v;
-                (k, v)
-            })
-            .collect();
+        let (mut counts, total_count) = self.collect_counts();
         counts.sort_unstable_by(|&(_, c1), &(_, c2)| c1.cmp(&c2));
         (counts, total_count)
     }
@@ -101,15 +99,7 @@ impl<T: Eq + Hash> Frequencies<T> {
         for<'a> (&'a T, u64): Send,
         T: Ord,
     {
-        let mut total_count = 0u64;
-        let mut counts: Vec<(&T, u64)> = self
-            .data
-            .iter()
-            .map(|(k, &v)| {
-                total_count += v;
-                (k, v)
-            })
-            .collect();
+        let (mut counts, total_count) = self.collect_counts();
         // sort by counts asc/desc
         // if counts are equal, sort by values lexicographically
         // We need to do this because otherwise the values are not guaranteed to be in order for
