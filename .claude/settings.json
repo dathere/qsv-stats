@@ -1,5 +1,12 @@
 {
   "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "(Edit|Write)",
+        "command": "echo \"$TOOL_INPUT\" | grep -q 'Cargo.lock' && echo 'BLOCK: Do not edit Cargo.lock — this is a library crate' && exit 1 || exit 0",
+        "timeout": 5000
+      }
+    ],
     "PostToolUse": [
       {
         "matcher": "(Edit|Write)",
