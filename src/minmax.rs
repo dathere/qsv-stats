@@ -82,6 +82,63 @@ impl<T: PartialOrd + Clone> MinMax<T> {
         self.len += 1;
     }
 
+    /// Add a sample by reference, only cloning when necessary to update
+    /// min, max, first_value, or last_value.
+    ///
+    /// This is more efficient than `add()` when the caller has a reference
+    /// and most samples don't update min/max, because it avoids the upfront
+    /// allocation that `add()` requires from the caller.
+    ///
+    /// For `last_value`, the existing allocation is reused when possible
+    /// by clearing and cloning into it rather than replacing.
+    #[inline]
+    pub fn add_ref(&mut self, sample: &T) {
+        match self.len {
+            2.. => {
+                if let Some(ref last) = self.last_value {
+                    #[allow(clippy::match_same_arms)]
+                    match sample.partial_cmp(last) {
+                        Some(Ordering::Greater) => self.ascending_pairs += 1,
+                        Some(Ordering::Less) => self.descending_pairs += 1,
+                        Some(Ordering::Equal) => self.ascending_pairs += 1,
+                        None => {}
+                    }
+                }
+            }
+            0 => {
+                self.first_value = Some(sample.clone());
+                self.min = Some(sample.clone());
+                self.max = Some(sample.clone());
+                self.len = 1;
+                return;
+            }
+            1 => {
+                if let Some(ref first) = self.first_value {
+                    match sample.partial_cmp(first) {
+                        Some(Ordering::Greater | Ordering::Equal) => self.ascending_pairs = 1,
+                        Some(Ordering::Less) => self.descending_pairs = 1,
+                        None => {}
+                    }
+                }
+            }
+        }
+
+        // Update min/max - only clone when actually updating
+        if self.min.as_ref().is_none_or(|v| sample < v) {
+            self.min = Some(sample.clone());
+        } else if self.max.as_ref().is_none_or(|v| sample > v) {
+            self.max = Some(sample.clone());
+        }
+
+        // Update last value - clone_from reuses existing allocation
+        if let Some(ref mut last) = self.last_value {
+            last.clone_from(sample);
+        } else {
+            self.last_value = Some(sample.clone());
+        }
+        self.len += 1;
+    }
+
     /// Returns the minimum of the data set.
     ///
     /// `None` is returned if and only if the number of samples is `0`.
@@ -164,6 +221,65 @@ impl<T: PartialOrd + Clone> MinMax<T> {
                 (self.ascending_pairs as f64 - self.descending_pairs as f64) / total_pairs as f64
             }
         }
+    }
+}
+
+impl MinMax<Vec<u8>> {
+    /// Add a byte slice sample, avoiding heap allocation when the value doesn't
+    /// update min, max, or first_value. Only `last_value` is always updated
+    /// (reusing its existing allocation via `clone_from`).
+    ///
+    /// This is significantly more efficient than `add(sample.to_vec())` for large
+    /// datasets where most values don't update min/max — avoiding ~99% of
+    /// allocations in the common case.
+    #[inline]
+    pub fn add_bytes(&mut self, sample: &[u8]) {
+        match self.len {
+            2.. => {
+                if let Some(ref last) = self.last_value {
+                    #[allow(clippy::match_same_arms)]
+                    match sample.partial_cmp(last.as_slice()) {
+                        Some(Ordering::Greater) => self.ascending_pairs += 1,
+                        Some(Ordering::Less) => self.descending_pairs += 1,
+                        Some(Ordering::Equal) => self.ascending_pairs += 1,
+                        None => {}
+                    }
+                }
+            }
+            0 => {
+                let owned = sample.to_vec();
+                self.first_value = Some(owned.clone());
+                self.min = Some(owned.clone());
+                self.max = Some(owned);
+                self.len = 1;
+                return;
+            }
+            1 => {
+                if let Some(ref first) = self.first_value {
+                    match sample.partial_cmp(first.as_slice()) {
+                        Some(Ordering::Greater | Ordering::Equal) => self.ascending_pairs = 1,
+                        Some(Ordering::Less) => self.descending_pairs = 1,
+                        None => {}
+                    }
+                }
+            }
+        }
+
+        // Update min/max - only allocate when actually updating
+        if self.min.as_ref().is_none_or(|v| sample < v.as_slice()) {
+            self.min = Some(sample.to_vec());
+        } else if self.max.as_ref().is_none_or(|v| sample > v.as_slice()) {
+            self.max = Some(sample.to_vec());
+        }
+
+        // Update last value - reuse existing allocation
+        if let Some(ref mut last) = self.last_value {
+            last.clear();
+            last.extend_from_slice(sample);
+        } else {
+            self.last_value = Some(sample.to_vec());
+        }
+        self.len += 1;
     }
 }
 
