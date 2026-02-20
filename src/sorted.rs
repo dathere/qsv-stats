@@ -20,7 +20,7 @@ pub fn median_on_sorted<T>(data: &[T]) -> Option<f64>
             unsafe {
                 let v1 = data.get_unchecked(idx - 1).to_f64()?;
                 let v2 = data.get_unchecked(idx).to_f64()?;
-                Some((v1 + v2) / 2.0)
+                Some(f64::midpoint(v1, v2))
             }
         }
         len => {

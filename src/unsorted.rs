@@ -366,7 +366,7 @@ where
                 let val = unsafe { x.0.to_f64().unwrap_unchecked() };
                 let diff = val - mean;
                 let diff_sq = diff * diff;
-                sum += diff_sq * diff_sq;
+                sum = diff_sq.mul_add(diff_sq, sum);
             }
             sum
         } else {
@@ -394,7 +394,7 @@ where
                 let diff = val - mean;
                 let diff_sq = diff * diff;
                 variance_sum += diff_sq;
-                fourth_power_sum += diff_sq * diff_sq;
+                fourth_power_sum = diff_sq.mul_add(diff_sq, fourth_power_sum);
             }
 
             (variance_sum, fourth_power_sum)
@@ -408,7 +408,7 @@ where
                         let val = unsafe { x.0.to_f64().unwrap_unchecked() };
                         let diff = val - mean;
                         let diff_sq = diff * diff;
-                        (acc.0 + diff_sq, acc.1 + diff_sq * diff_sq)
+                        (acc.0 + diff_sq, diff_sq.mul_add(diff_sq, acc.1))
                     },
                 )
                 .reduce(|| (0.0, 0.0), |a, b| (a.0 + b.0, a.1 + b.1))
@@ -470,7 +470,7 @@ where
             // Count all equal values after idx
             for x in data.iter().skip(idx + 1) {
                 if let Some(x_val) = x.0.to_f64() {
-                    if (x_val - value_f64).abs() < 1e-9 {
+                    if (x_val - value_f64).abs() < 1e-9 * value_f64.abs().max(1.0) {
                         count += 1;
                     } else {
                         break;

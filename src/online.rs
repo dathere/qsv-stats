@@ -93,7 +93,7 @@ impl OnlineStats {
     // https://en.wikipedia.org/wiki/Algorithms_for_calculating_variance
     #[must_use]
     pub const fn variance(&self) -> f64 {
-        self.q / (self.size as f64)
+        if self.is_empty() { f64::NAN } else { self.q / (self.size as f64) }
     }
 
     /// Return the current harmonic mean.
@@ -153,10 +153,16 @@ impl OnlineStats {
     // also see https://en.wikipedia.org/wiki/Algorithms_for_calculating_variance
 
     /// Add a new sample.
+    ///
+    /// NaN values are silently skipped to prevent corrupting the statistics.
     #[inline]
     pub fn add<T: ToPrimitive>(&mut self, sample: &T) {
         // safety: we only add samples for numbers, so safe to unwrap
         let sample = unsafe { sample.to_f64().unwrap_unchecked() };
+
+        if sample.is_nan() {
+            return;
+        }
 
         // Taken from: https://en.wikipedia.org/wiki/Standard_deviation#Rapid_calculation_methods
         // See also: https://api.semanticscholar.org/CorpusID:120126049
@@ -190,8 +196,14 @@ impl OnlineStats {
 
     /// Add a new f64 sample.
     /// Skipping the `ToPrimitive` conversion.
+    ///
+    /// NaN values are silently skipped to prevent corrupting the statistics.
     #[inline]
     pub fn add_f64(&mut self, sample: f64) {
+        if sample.is_nan() {
+            return;
+        }
+
         self.size += 1;
         let delta = sample - self.mean;
 
@@ -261,6 +273,7 @@ impl Commute for OnlineStats {
         // below is the fused multiply add version of the statement above
         self.q += meandiffsq.mul_add(s1 * s2 / total, v.q);
 
+        self.hg_sums = self.hg_sums && v.hg_sums;
         self.harmonic_sum += v.harmonic_sum;
         self.geometric_sum += v.geometric_sum;
 
