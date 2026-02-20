@@ -1506,6 +1506,21 @@ impl<T: PartialOrd + Clone> Unsorted<T> {
     }
 }
 
+impl Unsorted<Vec<u8>> {
+    /// Add a byte slice, converting to `Vec<u8>` internally.
+    ///
+    /// This is a convenience method that avoids requiring the caller to call
+    /// `.to_vec()` before `add()`. The allocation still occurs internally,
+    /// but the API is cleaner and opens the door for future optimizations
+    /// (e.g., frequency-map deduplication for high-cardinality data).
+    #[allow(clippy::inline_always)]
+    #[inline(always)]
+    pub fn add_bytes(&mut self, v: &[u8]) {
+        self.sorted = false;
+        self.data.push(Partial(v.to_vec()));
+    }
+}
+
 impl<T: PartialOrd + ToPrimitive> Unsorted<T> {
     /// Returns the median of the data.
     #[inline]
