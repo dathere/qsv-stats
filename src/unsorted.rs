@@ -366,6 +366,10 @@ where
     // If variance is provided, we can compute variance_sq directly (variance_sq = variance^2)
     // Otherwise, we need to compute variance from the data
     let (variance_sq, fourth_power_sum) = if let Some(variance) = precalc_variance {
+        // Negative variance is invalid (possible floating-point rounding artifact)
+        if variance < 0.0 {
+            return None;
+        }
         // Use pre-calculated variance: variance_sq = variance^2
         let variance_sq = variance * variance;
 
