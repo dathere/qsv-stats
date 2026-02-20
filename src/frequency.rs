@@ -6,6 +6,8 @@ use foldhash::{HashMap, HashMapExt};
 use rayon::prelude::*;
 
 use crate::Commute;
+
+const PARALLEL_THRESHOLD: usize = 10_000;
 /// A commutative data structure for exact frequency counts.
 #[derive(Clone)]
 pub struct Frequencies<T> {
@@ -59,13 +61,15 @@ impl<T: Eq + Hash> Frequencies<T> {
     #[inline]
     #[must_use]
     pub fn most_frequent(&self) -> (Vec<(&T, u64)>, u64) {
-        let len = self.data.len();
-        let total_count: u64 = self.data.values().sum();
-        let mut counts = Vec::with_capacity(len);
-
-        for (k, &v) in &self.data {
-            counts.push((k, v));
-        }
+        let mut total_count = 0u64;
+        let mut counts: Vec<(&T, u64)> = self
+            .data
+            .iter()
+            .map(|(k, &v)| {
+                total_count += v;
+                (k, v)
+            })
+            .collect();
         counts.sort_unstable_by(|&(_, c1), &(_, c2)| c2.cmp(&c1));
         (counts, total_count)
     }
@@ -75,13 +79,15 @@ impl<T: Eq + Hash> Frequencies<T> {
     #[inline]
     #[must_use]
     pub fn least_frequent(&self) -> (Vec<(&T, u64)>, u64) {
-        let len = self.data.len();
-        let total_count: u64 = self.data.values().sum();
-        let mut counts = Vec::with_capacity(len);
-
-        for (k, &v) in &self.data {
-            counts.push((k, v));
-        }
+        let mut total_count = 0u64;
+        let mut counts: Vec<(&T, u64)> = self
+            .data
+            .iter()
+            .map(|(k, &v)| {
+                total_count += v;
+                (k, v)
+            })
+            .collect();
         counts.sort_unstable_by(|&(_, c1), &(_, c2)| c1.cmp(&c2));
         (counts, total_count)
     }
@@ -95,30 +101,39 @@ impl<T: Eq + Hash> Frequencies<T> {
         for<'a> (&'a T, u64): Send,
         T: Ord,
     {
-        let len = self.data.len();
-        let total_count: u64 = self.data.values().sum();
-        let mut counts = Vec::with_capacity(len);
-
-        for (k, &v) in &self.data {
-            counts.push((k, v));
-        }
+        let mut total_count = 0u64;
+        let mut counts: Vec<(&T, u64)> = self
+            .data
+            .iter()
+            .map(|(k, &v)| {
+                total_count += v;
+                (k, v)
+            })
+            .collect();
         // sort by counts asc/desc
         // if counts are equal, sort by values lexicographically
-        // We need to do this because otherwise the values are not guaranteed to be in order for equal counts
+        // We need to do this because otherwise the values are not guaranteed to be in order for
+        // equal counts
         if least {
             // return counts in ascending order
-            counts.par_sort_unstable_by(|&(v1, c1), &(v2, c2)| {
-                let cmp = c1.cmp(&c2);
-                if cmp == std::cmp::Ordering::Equal {
-                    v1.cmp(v2)
-                } else {
-                    cmp
-                }
-            });
+            let sort_fn = |&(v1, c1): &(&T, u64), &(v2, c2): &(&T, u64)| {
+                c1.cmp(&c2).then_with(|| v1.cmp(v2))
+            };
+            if counts.len() < PARALLEL_THRESHOLD {
+                counts.sort_unstable_by(sort_fn);
+            } else {
+                counts.par_sort_unstable_by(sort_fn);
+            }
         } else {
             // return counts in descending order
-            counts
-                .par_sort_unstable_by(|&(v1, c1), &(v2, c2)| c2.cmp(&c1).then_with(|| v1.cmp(v2)));
+            let sort_fn = |&(v1, c1): &(&T, u64), &(v2, c2): &(&T, u64)| {
+                c2.cmp(&c1).then_with(|| v1.cmp(v2))
+            };
+            if counts.len() < PARALLEL_THRESHOLD {
+                counts.sort_unstable_by(sort_fn);
+            } else {
+                counts.par_sort_unstable_by(sort_fn);
+            }
         }
         (counts, total_count)
     }
@@ -280,7 +295,7 @@ impl<T: Eq + Hash> Default for Frequencies<T> {
     #[inline]
     fn default() -> Frequencies<T> {
         Frequencies {
-            data: HashMap::with_capacity(1_000),
+            data: HashMap::with_capacity(64),
         }
     }
 }

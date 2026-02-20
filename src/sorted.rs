@@ -113,29 +113,33 @@ impl<T: PartialOrd> Sorted<T> {
 }
 
 impl<T: PartialOrd + Clone> Sorted<T> {
-    /// Returns the mode of the data.
+    /// Returns the mode of the data. Clones the internal heap.
     #[inline]
     pub fn mode(&self) -> Option<T> {
         let p = mode_on_sorted(self.data.clone().into_sorted_vec().into_iter());
         p.map(|p| p.0)
     }
 
-    // #[inline]
-    // pub fn mode2(&self) -> Option<T> {
-    //     let p = mode_hashmap(self.data.clone().into_iter());
-    //     p.map(|p| p.0)
-    // }
+    /// Returns the mode of the data, consuming `self` to avoid cloning.
+    #[inline]
+    pub fn into_mode(self) -> Option<T> {
+        let p = mode_on_sorted(self.data.into_sorted_vec().into_iter());
+        p.map(|p| p.0)
+    }
 }
 
 impl<T: PartialOrd + ToPrimitive + Clone> Sorted<T> {
-    /// Returns the median of the data.
+    /// Returns the median of the data. Clones the internal heap.
     #[inline]
     pub fn median(&self) -> Option<f64> {
-        // Grr. The only way to avoid the alloc here is to take `self` by
-        // value. Could return `(f64, Sorted<T>)`, but that seems a bit weird.
-        //
-        // NOTE: Can `std::mem::swap` help us here?
         let data = self.data.clone().into_sorted_vec();
+        median_on_sorted(&*data)
+    }
+
+    /// Returns the median of the data, consuming `self` to avoid cloning.
+    #[inline]
+    pub fn into_median(self) -> Option<f64> {
+        let data = self.data.into_sorted_vec();
         median_on_sorted(&*data)
     }
 }

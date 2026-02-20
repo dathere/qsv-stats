@@ -259,7 +259,7 @@ impl Commute for OnlineStats {
 
         // self.q += v.q + meandiffsq * s1 * s2 / (s1 + s2);
         // below is the fused multiply add version of the statement above
-        self.q += v.q + f64::mul_add(meandiffsq, s1 * s2 / total, 0.0);
+        self.q += meandiffsq.mul_add(s1 * s2 / total, v.q);
 
         self.harmonic_sum += v.harmonic_sum;
         self.geometric_sum += v.geometric_sum;

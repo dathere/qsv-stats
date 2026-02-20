@@ -226,15 +226,28 @@ where
             .collect()
     };
 
-    // Use adaptive sorting based on size
-    if abs_diff_vec.len() < PARALLEL_THRESHOLD {
-        // SAFETY: partial_cmp on non-NaN f64 (from abs()) always returns Some
-        abs_diff_vec.sort_unstable_by(|a, b| unsafe { a.partial_cmp(b).unwrap_unchecked() });
+    // Use select_nth_unstable to find the median in O(n) instead of O(n log n) full sort
+    let len = abs_diff_vec.len();
+    let mid = len / 2;
+    // SAFETY: partial_cmp on non-NaN f64 (from abs()) always returns Some
+    let cmp = |a: &f64, b: &f64| unsafe { a.partial_cmp(b).unwrap_unchecked() };
+
+    if len.is_multiple_of(2) {
+        // Even length: need both mid-1 and mid elements
+        abs_diff_vec.select_nth_unstable_by(mid, cmp);
+        let right = abs_diff_vec[mid];
+        // The left partition [0..mid] contains elements <= abs_diff_vec[mid],
+        // so we can find the max of the left partition for mid-1
+        // SAFETY: mid > 0 because len >= 2 (we returned None for empty above)
+        let left = abs_diff_vec[..mid]
+            .iter()
+            .max_by(|a, b| cmp(a, b))
+            .copied()?;
+        Some(f64::midpoint(left, right))
     } else {
-        // SAFETY: partial_cmp on non-NaN f64 (from abs()) always returns Some
-        abs_diff_vec.par_sort_unstable_by(|a, b| unsafe { a.partial_cmp(b).unwrap_unchecked() });
+        abs_diff_vec.select_nth_unstable_by(mid, cmp);
+        Some(abs_diff_vec[mid])
     }
-    median_on_sorted(&abs_diff_vec)
 }
 
 fn gini_on_sorted<T>(data: &[Partial<T>], precalc_sum: Option<f64>) -> Option<f64>
@@ -276,7 +289,7 @@ where
         for (i, x) in data.iter().enumerate() {
             // SAFETY: to_f64() always returns Some for standard numeric types
             let val = unsafe { x.0.to_f64().unwrap_unchecked() };
-            weighted_sum += (i + 1) as f64 * val;
+            weighted_sum = ((i + 1) as f64).mul_add(val, weighted_sum);
         }
         weighted_sum
     } else {
@@ -286,7 +299,7 @@ where
             .map(|(i, x)| {
                 // SAFETY: to_f64() always returns Some for standard numeric types
                 let val = unsafe { x.0.to_f64().unwrap_unchecked() };
-                (i + 1) as f64 * val
+                ((i + 1) as f64).mul_add(val, 0.0)
             })
             .sum()
     };
@@ -300,7 +313,7 @@ where
     // G = (2 * Σ(i * y_i)) / (n * Σ(y_i)) - (n + 1) / n
     // where i is 1-indexed rank and y_i are sorted values
     let n = len as f64;
-    let gini = (2.0 * weighted_sum) / (n * sum) - (n + 1.0) / n;
+    let gini = 2.0f64.mul_add(weighted_sum / (n * sum), -(n + 1.0) / n);
 
     Some(gini)
 }
@@ -423,9 +436,9 @@ where
 
     // Sample excess kurtosis formula:
     // kurtosis = (n(n+1) * Σ((x_i - mean)⁴)) / ((n-1)(n-2)(n-3) * variance²) - 3(n-1)²/((n-2)(n-3))
-    let kurtosis = (n * (n + 1.0) * fourth_power_sum)
-        / ((n - 1.0) * (n - 2.0) * (n - 3.0) * variance_sq)
-        - 3.0 * (n - 1.0) * (n - 1.0) / ((n - 2.0) * (n - 3.0));
+    let denominator = (n - 1.0) * (n - 2.0) * (n - 3.0);
+    let adjustment = 3.0 * (n - 1.0) * (n - 1.0) / denominator;
+    let kurtosis = (n * (n + 1.0) * fourth_power_sum).mul_add(1.0 / (denominator * variance_sq), -adjustment);
 
     Some(kurtosis)
 }
@@ -1025,8 +1038,7 @@ where
 
     // Allocate indices array once and reuse it by resetting after each call
     let indices_template: Vec<usize> = (0..len).collect();
-    #[allow(unused)]
-    let mut indices: Vec<usize> = Vec::with_capacity(len);
+    let mut indices: Vec<usize> = indices_template.clone();
 
     // Use zero-copy selection algorithm to find the required order statistics
     // Note: Each quickselect_by_index call mutates the indices array, so we need
@@ -1034,21 +1046,21 @@ where
     match remainder {
         0 => {
             // Length is multiple of 4 (4k)
-            indices.clone_from(&indices_template);
+            indices.copy_from_slice(&indices_template);
             let q1_low = quickselect_by_index(data, &mut indices, k - 1)?.to_f64()?;
-            indices.clone_from(&indices_template);
+            indices.copy_from_slice(&indices_template);
             let q1_high = quickselect_by_index(data, &mut indices, k)?.to_f64()?;
             let q1 = f64::midpoint(q1_low, q1_high);
 
-            indices.clone_from(&indices_template);
+            indices.copy_from_slice(&indices_template);
             let q2_low = quickselect_by_index(data, &mut indices, 2 * k - 1)?.to_f64()?;
-            indices.clone_from(&indices_template);
+            indices.copy_from_slice(&indices_template);
             let q2_high = quickselect_by_index(data, &mut indices, 2 * k)?.to_f64()?;
             let q2 = f64::midpoint(q2_low, q2_high);
 
-            indices.clone_from(&indices_template);
+            indices.copy_from_slice(&indices_template);
             let q3_low = quickselect_by_index(data, &mut indices, 3 * k - 1)?.to_f64()?;
-            indices.clone_from(&indices_template);
+            indices.copy_from_slice(&indices_template);
             let q3_high = quickselect_by_index(data, &mut indices, 3 * k)?.to_f64()?;
             let q3 = f64::midpoint(q3_low, q3_high);
 
@@ -1056,18 +1068,18 @@ where
         }
         1 => {
             // Length is 4k + 1
-            indices.clone_from(&indices_template);
+            indices.copy_from_slice(&indices_template);
             let q1_low = quickselect_by_index(data, &mut indices, k - 1)?.to_f64()?;
-            indices.clone_from(&indices_template);
+            indices.copy_from_slice(&indices_template);
             let q1_high = quickselect_by_index(data, &mut indices, k)?.to_f64()?;
             let q1 = f64::midpoint(q1_low, q1_high);
 
-            indices.clone_from(&indices_template);
+            indices.copy_from_slice(&indices_template);
             let q2 = quickselect_by_index(data, &mut indices, 2 * k)?.to_f64()?;
 
-            indices.clone_from(&indices_template);
+            indices.copy_from_slice(&indices_template);
             let q3_low = quickselect_by_index(data, &mut indices, 3 * k)?.to_f64()?;
-            indices.clone_from(&indices_template);
+            indices.copy_from_slice(&indices_template);
             let q3_high = quickselect_by_index(data, &mut indices, 3 * k + 1)?.to_f64()?;
             let q3 = f64::midpoint(q3_low, q3_high);
 
@@ -1075,27 +1087,27 @@ where
         }
         2 => {
             // Length is 4k + 2
-            indices.clone_from(&indices_template);
+            indices.copy_from_slice(&indices_template);
             let q1 = quickselect_by_index(data, &mut indices, k)?.to_f64()?;
 
-            indices.clone_from(&indices_template);
+            indices.copy_from_slice(&indices_template);
             let q2_low = quickselect_by_index(data, &mut indices, 2 * k)?.to_f64()?;
-            indices.clone_from(&indices_template);
+            indices.copy_from_slice(&indices_template);
             let q2_high = quickselect_by_index(data, &mut indices, 2 * k + 1)?.to_f64()?;
             let q2 = f64::midpoint(q2_low, q2_high);
 
-            indices.clone_from(&indices_template);
+            indices.copy_from_slice(&indices_template);
             let q3 = quickselect_by_index(data, &mut indices, 3 * k + 1)?.to_f64()?;
 
             Some((q1, q2, q3))
         }
         _ => {
             // Length is 4k + 3
-            indices.clone_from(&indices_template);
+            indices.copy_from_slice(&indices_template);
             let q1 = quickselect_by_index(data, &mut indices, k)?.to_f64()?;
-            indices.clone_from(&indices_template);
+            indices.copy_from_slice(&indices_template);
             let q2 = quickselect_by_index(data, &mut indices, 2 * k + 1)?.to_f64()?;
-            indices.clone_from(&indices_template);
+            indices.copy_from_slice(&indices_template);
             let q3 = quickselect_by_index(data, &mut indices, 3 * k + 2)?.to_f64()?;
 
             Some((q1, q2, q3))
@@ -1706,7 +1718,7 @@ impl<T: PartialOrd> Default for Unsorted<T> {
     #[inline]
     fn default() -> Unsorted<T> {
         Unsorted {
-            data: Vec::with_capacity(256),
+            data: Vec::with_capacity(16),
             sorted: true, // empty is sorted
         }
     }
