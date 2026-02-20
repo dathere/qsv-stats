@@ -15,7 +15,7 @@ const PARALLEL_THRESHOLD: usize = 10_000;
 pub fn median<I>(it: I) -> Option<f64>
 where
     I: Iterator,
-    <I as Iterator>::Item: PartialOrd + ToPrimitive,
+    <I as Iterator>::Item: PartialOrd + ToPrimitive + Send,
 {
     it.collect::<Unsorted<_>>().median()
 }
@@ -24,7 +24,7 @@ where
 pub fn mad<I>(it: I, precalc_median: Option<f64>) -> Option<f64>
 where
     I: Iterator,
-    <I as Iterator>::Item: PartialOrd + ToPrimitive,
+    <I as Iterator>::Item: PartialOrd + ToPrimitive + Send + Sync,
 {
     it.collect::<Unsorted<_>>().mad(precalc_median)
 }
@@ -35,7 +35,7 @@ where
 pub fn quartiles<I>(it: I) -> Option<(f64, f64, f64)>
 where
     I: Iterator,
-    <I as Iterator>::Item: PartialOrd + ToPrimitive,
+    <I as Iterator>::Item: PartialOrd + ToPrimitive + Send,
 {
     it.collect::<Unsorted<_>>().quartiles()
 }
@@ -47,7 +47,7 @@ where
 /// If the data does not have a mode, then `None` is returned.
 pub fn mode<T, I>(it: I) -> Option<T>
 where
-    T: PartialOrd + Clone,
+    T: PartialOrd + Clone + Send,
     I: Iterator<Item = T>,
 {
     it.collect::<Unsorted<T>>().mode()
@@ -72,7 +72,7 @@ where
 /// If the data does not have a mode, then an empty `Vec` is returned.
 pub fn modes<T, I>(it: I) -> (Vec<T>, usize, u32)
 where
-    T: PartialOrd + Clone,
+    T: PartialOrd + Clone + Send,
     I: Iterator<Item = T>,
 {
     it.collect::<Unsorted<T>>().modes()
@@ -102,7 +102,7 @@ where
 /// If the data does not have an antimode, then an empty `Vec` is returned.
 pub fn antimodes<T, I>(it: I) -> (Vec<T>, usize, u32)
 where
-    T: PartialOrd + Clone,
+    T: PartialOrd + Clone + Send,
     I: Iterator<Item = T>,
 {
     let (antimodes_result, antimodes_count, antimodes_occurrences) =
@@ -119,7 +119,7 @@ where
 pub fn gini<I>(it: I, precalc_sum: Option<f64>) -> Option<f64>
 where
     I: Iterator,
-    <I as Iterator>::Item: PartialOrd + ToPrimitive + Sync,
+    <I as Iterator>::Item: PartialOrd + ToPrimitive + Send + Sync,
 {
     it.collect::<Unsorted<_>>().gini(precalc_sum)
 }
@@ -134,7 +134,7 @@ where
 pub fn kurtosis<I>(it: I, precalc_mean: Option<f64>, precalc_variance: Option<f64>) -> Option<f64>
 where
     I: Iterator,
-    <I as Iterator>::Item: PartialOrd + ToPrimitive + Sync,
+    <I as Iterator>::Item: PartialOrd + ToPrimitive + Send + Sync,
 {
     it.collect::<Unsorted<_>>()
         .kurtosis(precalc_mean, precalc_variance)
@@ -149,7 +149,7 @@ where
 pub fn percentile_rank<I, V>(it: I, value: V) -> Option<f64>
 where
     I: Iterator,
-    <I as Iterator>::Item: PartialOrd + ToPrimitive + Sync,
+    <I as Iterator>::Item: PartialOrd + ToPrimitive + Send + Sync,
     V: PartialOrd + ToPrimitive,
 {
     it.collect::<Unsorted<_>>().percentile_rank(value)
@@ -170,7 +170,7 @@ pub fn atkinson<I>(
 ) -> Option<f64>
 where
     I: Iterator,
-    <I as Iterator>::Item: PartialOrd + ToPrimitive + Sync,
+    <I as Iterator>::Item: PartialOrd + ToPrimitive + Send + Sync,
 {
     it.collect::<Unsorted<_>>()
         .atkinson(epsilon, precalc_mean, precalc_geometric_sum)
@@ -229,8 +229,7 @@ where
     // Use select_nth_unstable to find the median in O(n) instead of O(n log n) full sort
     let len = abs_diff_vec.len();
     let mid = len / 2;
-    // SAFETY: partial_cmp on non-NaN f64 (from abs()) always returns Some
-    let cmp = |a: &f64, b: &f64| unsafe { a.partial_cmp(b).unwrap_unchecked() };
+    let cmp = |a: &f64, b: &f64| a.total_cmp(b);
 
     if len.is_multiple_of(2) {
         // Even length: need both mid-1 and mid elements
@@ -238,7 +237,6 @@ where
         let right = abs_diff_vec[mid];
         // The left partition [0..mid] contains elements <= abs_diff_vec[mid],
         // so we can find the max of the left partition for mid-1
-        // SAFETY: mid > 0 because len >= 2 (we returned None for empty above)
         let left = abs_diff_vec[..mid]
             .iter()
             .max_by(|a, b| cmp(a, b))
@@ -1306,7 +1304,7 @@ pub struct Unsorted<T> {
     data: Vec<Partial<T>>,
 }
 
-impl<T: PartialOrd> Unsorted<T> {
+impl<T: PartialOrd + Send> Unsorted<T> {
     /// Create initial empty state.
     #[inline]
     #[must_use]
@@ -1388,7 +1386,7 @@ impl<T: PartialOrd> Unsorted<T> {
     }
 }
 
-impl<T: PartialOrd + PartialEq + Clone> Unsorted<T> {
+impl<T: PartialOrd + PartialEq + Clone + Send + Sync> Unsorted<T> {
     #[inline]
     /// Returns the cardinality of the data.
     /// Set `sorted` to `true` if the data is already sorted.
@@ -1471,7 +1469,7 @@ impl<T: PartialOrd + PartialEq + Clone> Unsorted<T> {
     }
 }
 
-impl<T: PartialOrd + Clone> Unsorted<T> {
+impl<T: PartialOrd + Clone + Send> Unsorted<T> {
     /// Returns the mode of the data.
     #[inline]
     pub fn mode(&mut self) -> Option<T> {
@@ -1533,7 +1531,7 @@ impl Unsorted<Vec<u8>> {
     }
 }
 
-impl<T: PartialOrd + ToPrimitive> Unsorted<T> {
+impl<T: PartialOrd + ToPrimitive + Send> Unsorted<T> {
     /// Returns the median of the data.
     #[inline]
     pub fn median(&mut self) -> Option<f64> {
@@ -1545,7 +1543,7 @@ impl<T: PartialOrd + ToPrimitive> Unsorted<T> {
     }
 }
 
-impl<T: PartialOrd + ToPrimitive> Unsorted<T> {
+impl<T: PartialOrd + ToPrimitive + Send + Sync> Unsorted<T> {
     /// Returns the Median Absolute Deviation (MAD) of the data.
     #[inline]
     pub fn mad(&mut self, existing_median: Option<f64>) -> Option<f64> {
@@ -1559,7 +1557,7 @@ impl<T: PartialOrd + ToPrimitive> Unsorted<T> {
     }
 }
 
-impl<T: PartialOrd + ToPrimitive> Unsorted<T> {
+impl<T: PartialOrd + ToPrimitive + Send> Unsorted<T> {
     /// Returns the quartiles of the data using the traditional sorting approach.
     ///
     /// This method sorts the data first and then computes quartiles.
@@ -1574,7 +1572,7 @@ impl<T: PartialOrd + ToPrimitive> Unsorted<T> {
     }
 }
 
-impl<T: PartialOrd + ToPrimitive + Sync> Unsorted<T> {
+impl<T: PartialOrd + ToPrimitive + Send + Sync> Unsorted<T> {
     /// Returns the Gini Coefficient of the data.
     ///
     /// The Gini Coefficient measures inequality in a distribution, ranging from 0 (perfect equality)
@@ -1657,7 +1655,7 @@ impl<T: PartialOrd + ToPrimitive + Sync> Unsorted<T> {
     }
 }
 
-impl<T: PartialOrd + ToPrimitive + Clone> Unsorted<T> {
+impl<T: PartialOrd + ToPrimitive + Clone + Send> Unsorted<T> {
     /// Returns the quartiles of the data using selection algorithm.
     ///
     /// This implementation uses a selection algorithm (quickselect) to find quartiles
@@ -1685,7 +1683,7 @@ impl<T: PartialOrd + ToPrimitive + Clone> Unsorted<T> {
     }
 }
 
-impl<T: PartialOrd + ToPrimitive> Unsorted<T> {
+impl<T: PartialOrd + ToPrimitive + Send> Unsorted<T> {
     /// Returns the quartiles using zero-copy selection algorithm.
     ///
     /// This implementation avoids copying data by working with indices instead,
@@ -1701,7 +1699,7 @@ impl<T: PartialOrd + ToPrimitive> Unsorted<T> {
     }
 }
 
-impl<T: PartialOrd> Commute for Unsorted<T> {
+impl<T: PartialOrd + Send> Commute for Unsorted<T> {
     #[inline]
     fn merge(&mut self, mut v: Unsorted<T>) {
         if v.is_empty() {
@@ -1724,7 +1722,7 @@ impl<T: PartialOrd> Default for Unsorted<T> {
     }
 }
 
-impl<T: PartialOrd> FromIterator<T> for Unsorted<T> {
+impl<T: PartialOrd + Send> FromIterator<T> for Unsorted<T> {
     #[inline]
     fn from_iter<I: IntoIterator<Item = T>>(it: I) -> Unsorted<T> {
         let mut v = Unsorted::new();
@@ -1802,7 +1800,7 @@ where
     Some(results)
 }
 
-impl<T: PartialOrd + Clone> Unsorted<T> {
+impl<T: PartialOrd + Clone + Send> Unsorted<T> {
     /// Returns the requested percentiles of the data.
     ///
     /// Uses the nearest-rank method to compute percentiles.
