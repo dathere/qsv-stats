@@ -1,0 +1,11 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "(Edit|Write)",
+        "command": "file=$(echo \"$TOOL_INPUT\" | grep -o '\"file_path\":\"[^\"]*\"' | head -1 | sed 's/\"file_path\":\"//;s/\"//'); if [ -n \"$file\" ] && echo \"$file\" | grep -q '\\.rs$'; then cargo fmt 2>/dev/null; fi",
+        "timeout": 10000
+      }
+    ]
+  }
+}
