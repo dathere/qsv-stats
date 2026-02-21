@@ -43,7 +43,7 @@ pub trait Commute: Sized {
 
 ### Performance Patterns
 
-- **Parallel threshold:** Datasets >10,000 elements use rayon parallel sort; smaller use sequential.
+- **Parallel threshold:** Datasets ≥10,000 elements use rayon parallel sort; smaller use sequential. The sort path uses a separate threshold of 10,240 (a multiple of 2048).
 - **FMA:** `.mul_add()` used throughout for precision and speed.
 - **Precalculated values:** `gini()` accepts optional precalculated sum; `kurtosis()` accepts mean/variance; `atkinson()` accepts mean/geometric_sum — avoiding redundant computation.
 - **Lazy sorting:** `Unsorted<T>` defers sorting until a statistic is requested.
@@ -56,7 +56,7 @@ pub trait Commute: Sized {
 
 ## Testing
 
-Tests are embedded in each module via `#[cfg(test)]` blocks (190+ tests total). Tests cover edge cases including empty data, negative values, zeros, and precision.
+Tests are embedded in each module via `#[cfg(test)]` blocks (140+ tests total). Tests cover edge cases including empty data, negative values, zeros, and precision.
 
 ## Dependencies
 
