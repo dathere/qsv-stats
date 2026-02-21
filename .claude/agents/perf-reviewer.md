@@ -7,7 +7,7 @@ Computes summary statistics (mean, variance, median, quartiles, mode, frequency,
 ## Key Performance Patterns to Enforce
 
 - **FMA**: All arithmetic combining multiply+add must use `.mul_add()` for precision and speed
-- **Rayon parallel threshold**: Datasets >10,000 elements use parallel sort; smaller use sequential. Verify this boundary is respected
+- **Rayon parallel threshold**: Datasets ≥10,000 elements use parallel sort; smaller use sequential. Verify this boundary is respected
 - **Lazy sorting**: `Unsorted<T>` defers sorting until a statistic is requested. Ensure new code doesn't trigger premature sorting
 - **Quickselect**: O(n) average for median/quartile. Prefer over full sorting when only a few order statistics are needed
 - **Precalculated values**: Functions like `gini()`, `kurtosis()`, `atkinson()` accept optional precalculated arguments to avoid redundant computation. New statistics should follow this pattern

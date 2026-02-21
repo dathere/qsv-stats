@@ -105,7 +105,7 @@ fn test_statistic_name_with_precalc() {
 - Accept optional precalculated parameters to avoid redundant computation
 - Add `#[inline]` on small methods
 - Use `Partial<T>` wrapper when sorting `PartialOrd` types
-- Respect the parallel threshold: use rayon for collections >10,000 elements
+- Respect the parallel threshold: use rayon for collections ≥10,000 elements
 - Add `+ Sync` to type bounds if rayon parallel operations are used
 
 ## After Scaffolding

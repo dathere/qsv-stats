@@ -6,24 +6,20 @@ Computes summary statistics (mean, variance, median, quartiles, mode, frequency,
 
 ## Unsafe Patterns in This Codebase
 
-There are ~45 unsafe blocks across 3 files. The main patterns are:
+There are ~32 unsafe blocks across 2 files (`unsorted.rs`, `online.rs`). The main patterns are:
 
-### 1. `unwrap_unchecked()` on ToPrimitive conversions (~28 instances)
-- Primarily in `unsorted.rs` and `online.rs`
-- Assumption: `to_f64()` always returns `Some` for standard numeric types (f32/f64, i/u 8-64)
-- **Verify**: Each call site has a SAFETY comment, and the type constraints guarantee the assumption holds
+### 1. `unwrap_unchecked()` / `get_unchecked()` (~49 combined instances)
+- Primarily in `unsorted.rs`; a few in `online.rs`
+- `unwrap_unchecked()` on `to_f64()`: assumption is `to_f64()` always returns `Some` for standard numeric types (f32/f64, i/u 8-64)
+- `get_unchecked()` on slice indexing: used in median, quartile, and quickselect operations
+- **Verify**: Each call site has a SAFETY comment, bounds are validated before every unchecked access
 
-### 2. `get_unchecked()` on slice indexing (~14 instances)
-- Primarily in `unsorted.rs` for median, quartile, and quickselect operations
-- **Verify**: Bounds are validated before every unchecked access (e.g., checking `len`, `idx < len`)
-
-### 3. `partial_cmp().unwrap_unchecked()` (2 instances)
+### 2. `partial_cmp().unwrap_unchecked()` (2 instances)
 - In `unsorted.rs` for sorting operations
 - Assumption: `abs()` on f64 produces non-NaN values, so `partial_cmp()` never returns None
 
-### 4. Unsafe trait implementations (2 instances)
-- `unsafe impl Send for Partial<T>` and `unsafe impl Sync for Partial<T>` in `lib.rs`
-- `Partial<T>` is a transparent newtype wrapper
+### 3. `Send`/`Sync` for `Partial<T>`
+- Auto-derived (not manually implemented with `unsafe impl`) — `Partial<T>` is a transparent newtype wrapper, so Send/Sync are inherited from `T`
 
 ## What to Flag
 
