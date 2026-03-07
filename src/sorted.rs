@@ -1,5 +1,4 @@
 use std::collections::BinaryHeap;
-use foldhash::{HashMap, HashMapExt};
 use std::default::Default;
 use std::iter::{FromIterator, IntoIterator};
 
@@ -41,9 +40,9 @@ pub fn mode_on_sorted<T, I>(it: I) -> Option<T>
     let (mut mode, mut next) = (None, None);
     let (mut mode_count, mut next_count) = (0usize, 0usize);
     for x in it {
-        if mode.as_ref().map(|y| y == &x).unwrap_or(false) {
+        if mode.as_ref() == Some(&x) {
             mode_count += 1;
-        } else if next.as_ref().map(|y| y == &x).unwrap_or(false) {
+        } else if next.as_ref() == Some(&x) {
             next_count += 1;
         } else {
             next = Some(x);
@@ -62,25 +61,6 @@ pub fn mode_on_sorted<T, I>(it: I) -> Option<T>
     }
     mode
 }
-
-// pub fn mode_hashmap<T, I>(it: I) -> Option<T>
-// where
-//     T: Eq + Hash + Clone,
-//     I: Iterator<Item = T>,
-// {
-//     let mut counts = HashMap::new();
-//     let mut mode = None;
-//     let mut mode_count = 0;
-//     for x in it {
-//         let count = counts.entry(x.clone()).or_insert(0);
-//         *count += 1;
-//         if *count > mode_count {
-//             mode = Some(x.clone());
-//             mode_count = *count;
-//         }
-//     }
-//     mode
-// }
 
 /// A commutative data structure for sorted sequences of data.
 ///
@@ -148,7 +128,7 @@ impl<T: PartialOrd> Commute for Sorted<T> {
     #[inline]
     fn merge(&mut self, v: Sorted<T>) {
         // should this be `into_sorted_vec`?
-        self.data.extend(v.data.into_vec().into_iter());
+        self.data.extend(v.data);
     }
 }
 
@@ -188,11 +168,6 @@ mod test {
         it.collect::<Sorted<T>>().mode()
     }
 
-    fn mode2<T, I>(it: I) -> Option<T>
-    where T: PartialOrd + Clone, I: Iterator<Item=T> {
-     it.collect::<Sorted<T>>().mode2()
- }
-
     #[test]
     fn median_stream() {
         assert_eq!(median(vec![3usize, 5, 7, 9].into_iter()), Some(6.0));
@@ -207,15 +182,6 @@ mod test {
         assert_eq!(mode(vec![4usize, 3, 3, 3].into_iter()), Some(3));
         assert_eq!(mode(vec![1usize, 1, 2, 3, 3].into_iter()), None);
     }
-
-    // #[test]
-    // fn mode2_stream() {
-    //     assert_eq!(mode2(vec![3usize, 5, 7, 9].into_iter()), None);
-    //     assert_eq!(mode2(vec![3usize, 3, 3, 3].into_iter()), Some(3));
-    //     assert_eq!(mode2(vec![3usize, 3, 3, 4].into_iter()), Some(3));
-    //     assert_eq!(mode2(vec![4usize, 3, 3, 3].into_iter()), Some(3));
-    //     assert_eq!(mode2(vec![1usize, 1, 2, 3, 3].into_iter()), None);
-    // }
 
     #[test]
     fn median_floats() {
@@ -232,12 +198,4 @@ mod test {
         assert_eq!(mode(vec![1.0f64, 1.0, 2.0, 3.0, 3.0].into_iter()), None);
     }
 
-    // #[test]
-    // fn mode2_floats() {
-    //     assert_eq!(mode2(vec![3.0f64, 5.0, 7.0, 9.0].into_iter()), None);
-    //     assert_eq!(mode2(vec![3.0f64, 3.0, 3.0, 3.0].into_iter()), Some(3.0));
-    //     assert_eq!(mode2(vec![3.0f64, 3.0, 3.0, 4.0].into_iter()), Some(3.0));
-    //     assert_eq!(mode2(vec![4.0f64, 3.0, 3.0, 3.0].into_iter()), Some(3.0));
-    //     assert_eq!(mode2(vec![1.0f64, 1.0, 2.0, 3.0, 3.0].into_iter()), None);
-    // }
 }

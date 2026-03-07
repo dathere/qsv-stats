@@ -286,11 +286,14 @@ impl MinMax<Vec<u8>> {
 impl<T: PartialOrd + Clone> Commute for MinMax<T> {
     #[inline]
     fn merge(&mut self, v: MinMax<T>) {
+        if v.min.is_none() {
+            return;
+        }
         self.len += v.len;
-        if self.min.is_none() || (v.min.is_some() && v.min < self.min) {
+        if self.min.is_none() || v.min < self.min {
             self.min = v.min;
         }
-        if self.max.is_none() || (v.max.is_some() && v.max > self.max) {
+        if self.max.is_none() || v.max > self.max {
             self.max = v.max;
         }
 

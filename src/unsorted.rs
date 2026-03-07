@@ -7,11 +7,15 @@ use serde::{Deserialize, Serialize};
 
 use {crate::Commute, crate::Partial};
 
+// PARALLEL_THRESHOLD (10,000) is the minimum dataset size for rayon parallel sort.
+// The separate 10,240 threshold in cardinality estimation (5 × 2,048) is aligned to
+// cache-line-friendly chunk sizes for parallel iterator reduction.
 const PARALLEL_THRESHOLD: usize = 10_000;
 
 /// Compute the exact median on a stream of data.
 ///
 /// (This has time complexity `O(nlogn)` and space complexity `O(n)`.)
+#[inline]
 pub fn median<I>(it: I) -> Option<f64>
 where
     I: Iterator,
@@ -21,6 +25,7 @@ where
 }
 
 /// Compute the median absolute deviation (MAD) on a stream of data.
+#[inline]
 pub fn mad<I>(it: I, precalc_median: Option<f64>) -> Option<f64>
 where
     I: Iterator,
@@ -32,6 +37,7 @@ where
 /// Compute the exact 1-, 2-, and 3-quartiles (Q1, Q2 a.k.a. median, and Q3) on a stream of data.
 ///
 /// (This has time complexity `O(n log n)` and space complexity `O(n)`.)
+#[inline]
 pub fn quartiles<I>(it: I) -> Option<(f64, f64, f64)>
 where
     I: Iterator,
@@ -45,6 +51,7 @@ where
 /// (This has time complexity `O(nlogn)` and space complexity `O(n)`.)
 ///
 /// If the data does not have a mode, then `None` is returned.
+#[inline]
 pub fn mode<T, I>(it: I) -> Option<T>
 where
     T: PartialOrd + Clone + Send,
@@ -70,6 +77,7 @@ where
 /// This has time complexity `O(n)`
 ///
 /// If the data does not have a mode, then an empty `Vec` is returned.
+#[inline]
 pub fn modes<T, I>(it: I) -> (Vec<T>, usize, u32)
 where
     T: PartialOrd + Clone + Send,
@@ -100,6 +108,7 @@ where
 /// This has time complexity `O(n)`
 ///
 /// If the data does not have an antimode, then an empty `Vec` is returned.
+#[inline]
 pub fn antimodes<T, I>(it: I) -> (Vec<T>, usize, u32)
 where
     T: PartialOrd + Clone + Send,
@@ -116,6 +125,7 @@ where
 /// to 1 (perfect inequality).
 ///
 /// (This has time complexity `O(n log n)` and space complexity `O(n)`.)
+#[inline]
 pub fn gini<I>(it: I, precalc_sum: Option<f64>) -> Option<f64>
 where
     I: Iterator,
@@ -131,6 +141,7 @@ where
 /// negative values indicate light tails.
 ///
 /// (This has time complexity `O(n log n)` and space complexity `O(n)`.)
+#[inline]
 pub fn kurtosis<I>(it: I, precalc_mean: Option<f64>, precalc_variance: Option<f64>) -> Option<f64>
 where
     I: Iterator,
@@ -146,6 +157,7 @@ where
 /// If the value is less than all values, returns 0.0. If greater than all, returns 100.0.
 ///
 /// (This has time complexity `O(n log n)` and space complexity `O(n)`.)
+#[inline]
 pub fn percentile_rank<I, V>(it: I, value: V) -> Option<f64>
 where
     I: Iterator,
@@ -162,6 +174,7 @@ where
 /// Higher ε values give more weight to inequality at the lower end of the distribution.
 ///
 /// (This has time complexity `O(n log n)` and space complexity `O(n)`.)
+#[inline]
 pub fn atkinson<I>(
     it: I,
     epsilon: f64,
@@ -477,21 +490,13 @@ where
 
     let count = match count_leq {
         Ok(idx) => {
-            // Value found at idx, but we need to count all equal values
-            let mut count = idx + 1;
-            // Count all equal values after idx
-            for x in data.iter().skip(idx + 1) {
-                if let Some(x_val) = x.0.to_f64() {
-                    if x_val.total_cmp(&value_f64).is_eq() {
-                        count += 1;
-                    } else {
-                        break;
-                    }
-                } else {
-                    break;
-                }
-            }
-            count
+            // Value found at idx — use partition_point (O(log n)) to find the upper bound
+            // of equal values instead of a linear scan
+            let upper = data[idx + 1..].partition_point(|x| {
+                x.0.to_f64()
+                    .map_or(false, |v| v.total_cmp(&value_f64).is_le())
+            });
+            idx + 1 + upper
         }
         Err(idx) => idx, // Number of values less than value
     };
@@ -2684,6 +2689,31 @@ mod test {
     fn percentile_rank_stream() {
         let result = percentile_rank(vec![1usize, 2, 3, 4, 5].into_iter(), 3);
         assert_eq!(result, Some(60.0)); // 3 out of 5 values <= 3
+    }
+
+    #[test]
+    fn percentile_rank_many_ties() {
+        // 100 copies of 5 followed by 100 copies of 10 — tests O(log n) upper bound
+        let mut unsorted = Unsorted::new();
+        for _ in 0..100 {
+            unsorted.add(5u32);
+        }
+        for _ in 0..100 {
+            unsorted.add(10u32);
+        }
+        // 100 values <= 5 out of 200
+        let rank = unsorted.percentile_rank(5).unwrap();
+        assert!((rank - 50.0).abs() < f64::EPSILON);
+        // All 200 values <= 10
+        let mut unsorted2 = Unsorted::new();
+        for _ in 0..100 {
+            unsorted2.add(5u32);
+        }
+        for _ in 0..100 {
+            unsorted2.add(10u32);
+        }
+        let rank = unsorted2.percentile_rank(10).unwrap();
+        assert!((rank - 100.0).abs() < f64::EPSILON);
     }
 
     #[test]
