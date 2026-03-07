@@ -83,7 +83,7 @@ impl<T: PartialOrd + Clone> MinMax<T> {
     }
 
     /// Add a sample by reference, only cloning when necessary to update
-    /// min, max, first_value, or last_value.
+    /// min, max, `first_value`, or `last_value`.
     ///
     /// This is more efficient than `add()` when the caller has a reference
     /// and most samples don't update min/max, because it avoids the upfront
@@ -226,7 +226,7 @@ impl<T: PartialOrd + Clone> MinMax<T> {
 
 impl MinMax<Vec<u8>> {
     /// Add a byte slice sample, avoiding heap allocation when the value doesn't
-    /// update min, max, or first_value. Only `last_value` is always updated
+    /// update min, max, or `first_value`. Only `last_value` is always updated
     /// (reusing its existing allocation via `clone_from`).
     ///
     /// This is significantly more efficient than `add(sample.to_vec())` for large
