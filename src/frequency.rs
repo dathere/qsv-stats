@@ -56,7 +56,7 @@ impl<T: Eq + Hash> Frequencies<T> {
         self.len() as u64
     }
 
-    /// Collect counts and total in a single pass, reused by most/least_frequent.
+    /// Collect counts and total in a single pass, reused by `most/least_frequent`.
     fn collect_counts(&self) -> (Vec<(&T, u64)>, u64) {
         let mut total_count = 0u64;
         let counts: Vec<(&T, u64)> = self
@@ -76,7 +76,7 @@ impl<T: Eq + Hash> Frequencies<T> {
     #[must_use]
     pub fn most_frequent(&self) -> (Vec<(&T, u64)>, u64) {
         let (mut counts, total_count) = self.collect_counts();
-        counts.sort_unstable_by(|&(_, c1), &(_, c2)| c2.cmp(&c1));
+        counts.sort_unstable_by_key(|&(_, c)| std::cmp::Reverse(c));
         (counts, total_count)
     }
 
@@ -86,7 +86,7 @@ impl<T: Eq + Hash> Frequencies<T> {
     #[must_use]
     pub fn least_frequent(&self) -> (Vec<(&T, u64)>, u64) {
         let (mut counts, total_count) = self.collect_counts();
-        counts.sort_unstable_by(|&(_, c1), &(_, c2)| c1.cmp(&c2));
+        counts.sort_unstable_by_key(|&(_, c)| c);
         (counts, total_count)
     }
 
@@ -240,7 +240,7 @@ impl<T: Eq + Hash> Frequencies<T> {
 impl Frequencies<Vec<u8>> {
     /// Increment count for a byte slice key, avoiding allocation when key exists.
     /// Uses borrowed lookup via `get_mut(&[u8])` before falling back to owned insert.
-    /// This works because `Vec<u8>: Borrow<[u8]>`, so HashMap accepts `&[u8]` for lookup.
+    /// This works because `Vec<u8>: Borrow<[u8]>`, so `HashMap` accepts `&[u8]` for lookup.
     /// For low-cardinality columns (the common case), this eliminates ~99% of allocations.
     #[inline]
     pub fn add_borrowed(&mut self, v: &[u8]) {
