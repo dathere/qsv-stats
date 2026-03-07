@@ -1220,9 +1220,8 @@ impl<T: PartialOrd + PartialEq + Clone + Send + Sync> Unsorted<T> {
                 .map(|chunk| {
                     // Count unique elements within this chunk
                     let mut count = u64::from(!chunk.is_empty());
-                    for window in chunk.windows(2) {
-                        // safety: windows(2) guarantees window has length 2
-                        if unsafe { window.get_unchecked(0) != window.get_unchecked(1) } {
+                    for [a, b] in chunk.array_windows::<2>() {
+                        if a != b {
                             count += 1;
                         }
                     }
@@ -1252,9 +1251,8 @@ impl<T: PartialOrd + PartialEq + Clone + Send + Sync> Unsorted<T> {
             // let mut count = if self.data.is_empty() { 0 } else { 1 };
             let mut count = u64::from(!self.data.is_empty());
 
-            for window in self.data.windows(2) {
-                // safety: windows(2) guarantees window has length 2
-                if unsafe { window.get_unchecked(0) != window.get_unchecked(1) } {
+            for [a, b] in self.data.array_windows::<2>() {
+                if a != b {
                     count += 1;
                 }
             }
@@ -1545,7 +1543,7 @@ where
         percentiles.to_vec()
     } else {
         // Check if already sorted and unique (common case)
-        let is_sorted_unique = percentiles.windows(2).all(|w| w[0] < w[1]);
+        let is_sorted_unique = percentiles.array_windows::<2>().all(|[a, b]| a < b);
 
         if is_sorted_unique {
             // Already sorted and unique, use directly without cloning
