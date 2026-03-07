@@ -302,10 +302,10 @@ impl<T: PartialOrd + Clone> Commute for MinMax<T> {
         self.descending_pairs += v.descending_pairs;
 
         // Handle merging of first_value and last_value
-        if self.len > 1 && v.len > 0 {
-            if self.first_value.is_none() {
-                self.first_value.clone_from(&v.first_value);
-            }
+        if self.first_value.is_none() {
+            self.first_value = v.first_value.clone();
+        }
+        if v.len > 0 {
             if let (Some(last), Some(v_first)) = (&self.last_value, &v.first_value) {
                 match v_first.partial_cmp(last) {
                     Some(Ordering::Greater | Ordering::Equal) => self.ascending_pairs += 1,
@@ -525,6 +525,24 @@ mod test {
         assert_eq!(mx3, vec![1, 2, 3, 2, 1, 0].into_iter().collect());
         assert!(mx3.sortiness() < 1.0); // Should show mixed sorting after merge
         assert_eq!(mx3.sortiness(), -0.2);
+    }
+
+    #[test]
+    fn test_merge_single_into_empty() {
+        let mut empty: MinMax<u32> = MinMax::default();
+        let single: MinMax<u32> = vec![42].into_iter().collect();
+
+        assert!(empty.first_value.is_none());
+        assert!(empty.last_value.is_none());
+
+        empty.merge(single);
+
+        assert_eq!(empty.len(), 1);
+        assert_eq!(empty.min(), Some(&42));
+        assert_eq!(empty.max(), Some(&42));
+        assert_eq!(empty.first_value, Some(42));
+        // last_value is None for single-element MinMax (only set from 2nd element onward)
+        assert_eq!(empty.last_value, None);
     }
 }
 
