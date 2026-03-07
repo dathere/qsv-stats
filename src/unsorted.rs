@@ -230,9 +230,10 @@ where
     let mid = len / 2;
     let cmp = |a: &f64, b: &f64| a.total_cmp(b);
 
+    abs_diff_vec.select_nth_unstable_by(mid, cmp);
+
     if len.is_multiple_of(2) {
         // Even length: need both mid-1 and mid elements
-        abs_diff_vec.select_nth_unstable_by(mid, cmp);
         let right = abs_diff_vec[mid];
         // The left partition [0..mid] contains elements <= abs_diff_vec[mid],
         // so we can find the max of the left partition for mid-1
@@ -242,7 +243,6 @@ where
             .copied()?;
         Some(f64::midpoint(left, right))
     } else {
-        abs_diff_vec.select_nth_unstable_by(mid, cmp);
         Some(abs_diff_vec[mid])
     }
 }
@@ -1407,6 +1407,7 @@ impl<T: PartialOrd + ToPrimitive + Send + Sync> Unsorted<T> {
     /// This method sorts the data first and then computes the percentile rank.
     /// Time complexity: O(n log n)
     #[inline]
+    #[allow(clippy::needless_pass_by_value)]
     pub fn percentile_rank<V>(&mut self, value: V) -> Option<f64>
     where
         V: PartialOrd + ToPrimitive,
