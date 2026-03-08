@@ -17,13 +17,15 @@ pub enum SortOrder {
 /// and detecting sort order in a stream of data.
 #[derive(Clone, Copy, Deserialize, Serialize, Eq, PartialEq)]
 pub struct MinMax<T> {
+    // Hot fields: accessed on every add() call, grouped on same cache line
     len: u32,
+    ascending_pairs: u32,
+    descending_pairs: u32,
+    // Warm fields: accessed conditionally
     min: Option<T>,
     max: Option<T>,
     first_value: Option<T>,
     last_value: Option<T>,
-    ascending_pairs: u32,
-    descending_pairs: u32,
 }
 
 impl<T: PartialOrd + Clone> MinMax<T> {
@@ -323,12 +325,12 @@ impl<T: PartialOrd> Default for MinMax<T> {
     fn default() -> MinMax<T> {
         MinMax {
             len: 0,
+            ascending_pairs: 0,
+            descending_pairs: 0,
             min: None,
             max: None,
             first_value: None,
             last_value: None,
-            ascending_pairs: 0,
-            descending_pairs: 0,
         }
     }
 }
