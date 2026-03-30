@@ -263,7 +263,8 @@ impl Commute for OnlineStats {
         // Taken from: https://en.wikipedia.org/wiki/Standard_deviation#Combining_standard_deviations
         let (s1, s2) = (self.size as f64, v.size as f64);
         let total = s1 + s2;
-        let meandiffsq = (self.mean - v.mean).powi(2);
+        let delta = self.mean - v.mean;
+        let meandiffsq = delta * delta;
 
         self.size += v.size;
 

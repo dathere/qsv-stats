@@ -284,44 +284,58 @@ where
         return None;
     }
 
-    // Use pre-calculated sum if provided, otherwise compute it
-    let sum = if let Some(precalc) = precalc_sum {
+    // Compute sum and weighted sum.
+    // When precalc_sum is provided, only compute weighted_sum in a single pass.
+    // When not provided, fuse both computations into a single pass over the data
+    // to halve cache pressure (following the fold/reduce pattern used in kurtosis).
+    let (sum, weighted_sum) = if let Some(precalc) = precalc_sum {
         if precalc < 0.0 {
             return None;
         }
-        precalc
-    } else if len < PARALLEL_THRESHOLD {
-        // Iterator sum enables auto-vectorization (SIMD) by the compiler
-        data.iter()
-            // SAFETY: to_f64() always returns Some for standard numeric types (f32/f64, i/u 8-64)
-            .map(|x| unsafe { x.0.to_f64().unwrap_unchecked() })
-            .sum()
-    } else {
-        data.par_iter()
-            // SAFETY: to_f64() always returns Some for standard numeric types
-            .map(|x| unsafe { x.0.to_f64().unwrap_unchecked() })
-            .sum()
-    };
-
-    // Compute weighted sum
-    let weighted_sum = if len < PARALLEL_THRESHOLD {
-        let mut weighted_sum = 0.0;
-        for (i, x) in data.iter().enumerate() {
-            // SAFETY: to_f64() always returns Some for standard numeric types
-            let val = unsafe { x.0.to_f64().unwrap_unchecked() };
-            weighted_sum = ((i + 1) as f64).mul_add(val, weighted_sum);
-        }
-        weighted_sum
-    } else {
-        // Compute weighted sum in parallel using enumerate to get indices
-        data.par_iter()
-            .enumerate()
-            .map(|(i, x)| {
+        // Only need weighted_sum — single pass
+        let weighted_sum = if len < PARALLEL_THRESHOLD {
+            let mut weighted_sum = 0.0;
+            for (i, x) in data.iter().enumerate() {
                 // SAFETY: to_f64() always returns Some for standard numeric types
                 let val = unsafe { x.0.to_f64().unwrap_unchecked() };
-                ((i + 1) as f64).mul_add(val, 0.0)
-            })
-            .sum()
+                weighted_sum = ((i + 1) as f64).mul_add(val, weighted_sum);
+            }
+            weighted_sum
+        } else {
+            data.par_iter()
+                .enumerate()
+                .map(|(i, x)| {
+                    // SAFETY: to_f64() always returns Some for standard numeric types
+                    let val = unsafe { x.0.to_f64().unwrap_unchecked() };
+                    ((i + 1) as f64).mul_add(val, 0.0)
+                })
+                .sum()
+        };
+        (precalc, weighted_sum)
+    } else if len < PARALLEL_THRESHOLD {
+        // Fused single pass: compute both sum and weighted_sum together
+        let mut sum = 0.0;
+        let mut weighted_sum = 0.0;
+        for (i, x) in data.iter().enumerate() {
+            // SAFETY: to_f64() always returns Some for standard numeric types (f32/f64, i/u 8-64)
+            let val = unsafe { x.0.to_f64().unwrap_unchecked() };
+            sum += val;
+            weighted_sum = ((i + 1) as f64).mul_add(val, weighted_sum);
+        }
+        (sum, weighted_sum)
+    } else {
+        // Fused parallel single pass using fold/reduce
+        data.par_iter()
+            .enumerate()
+            .fold(
+                || (0.0_f64, 0.0_f64),
+                |acc, (i, x)| {
+                    // SAFETY: to_f64() always returns Some for standard numeric types
+                    let val = unsafe { x.0.to_f64().unwrap_unchecked() };
+                    (acc.0 + val, ((i + 1) as f64).mul_add(val, acc.1))
+                },
+            )
+            .reduce(|| (0.0, 0.0), |a, b| (a.0 + b.0, a.1 + b.1))
     };
 
     // If sum is zero, Gini is undefined
@@ -494,7 +508,7 @@ where
             // of equal values instead of a linear scan
             let upper = data[idx + 1..].partition_point(|x| {
                 x.0.to_f64()
-                    .map_or(false, |v| v.total_cmp(&value_f64).is_le())
+                    .is_some_and(|v| v.total_cmp(&value_f64).is_le())
             });
             idx + 1 + upper
         }
