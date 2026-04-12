@@ -1129,7 +1129,7 @@ impl<T: PartialEq> PartialEq for Unsorted<T> {
     }
 }
 
-impl<T: Eq> Eq for Unsorted<T> {}
+impl<T: PartialEq> Eq for Unsorted<T> where Partial<T>: Eq {}
 
 impl<T: PartialOrd + Send> Unsorted<T> {
     /// Create initial empty state.
