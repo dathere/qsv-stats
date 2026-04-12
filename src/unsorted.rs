@@ -307,7 +307,7 @@ where
                 .map(|(i, x)| {
                     // SAFETY: to_f64() always returns Some for standard numeric types
                     let val = unsafe { x.0.to_f64().unwrap_unchecked() };
-                    ((i + 1) as f64).mul_add(val, 0.0)
+                    (i + 1) as f64 * val
                 })
                 .sum()
         };
