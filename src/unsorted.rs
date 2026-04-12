@@ -2881,7 +2881,8 @@ mod test {
         // NaN values wrapped in Partial get an arbitrary ordering,
         // but should not panic
         let mut unsorted: Unsorted<f64> = Unsorted::new();
-        unsorted.extend(vec![1.0, 2.0, 2.0, 3.0]);
+        unsorted.extend(vec![1.0, f64::NAN, 2.0, 2.0, 3.0]);
+        // Should not panic; mode is still 2.0 (NaN gets arbitrary position)
         assert_eq!(unsorted.mode(), Some(2.0));
     }
 
@@ -2890,7 +2891,9 @@ mod test {
         let mut unsorted = Unsorted::new();
         unsorted.extend(vec![1.0f64, 2.0, f64::INFINITY]);
         let g = unsorted.gini(None);
-        // Gini with infinity in the data - result may be extreme but should not panic
+        // Gini with infinity in the data: the weighted_sum/sum ratio involves
+        // Inf/Inf which is NaN, so the result is Some(NaN) — not a meaningful
+        // Gini coefficient, but importantly does not panic
         assert!(g.is_some());
     }
 

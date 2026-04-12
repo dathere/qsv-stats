@@ -28,11 +28,12 @@ pub use unsorted::{
 ///
 /// The `Ord` impl falls back to `Ordering::Less` when `partial_cmp` returns `None`
 /// (e.g., when comparing `NaN` values). This technically violates the `Ord` contract's
-/// transitivity requirement. However, this is safe in practice because all call sites
-/// in this crate pre-filter `NaN` values before wrapping in `Partial`:
-/// - `OnlineStats::add()` / `add_f64()` skip `NaN` inputs
-/// - `Unsorted<T>` only wraps values that passed through `ToPrimitive`
-/// - Sorting with `NaN` present would produce arbitrary (but not UB) ordering
+/// transitivity requirement. In practice:
+/// - `OnlineStats::add()` / `add_f64()` skip `NaN` inputs, so `OnlineStats` never sees `NaN`
+/// - `Unsorted<T>` and `MinMax<T>` do NOT filter `NaN` — if `NaN` is present, sort order
+///   is arbitrary but deterministic, and no undefined behavior occurs
+/// - The violation cannot cause UB (only surprising order), since Rust's sort is safe
+///   even with a broken `Ord` impl
 #[allow(clippy::derive_ord_xor_partial_ord)]
 #[derive(Clone, PartialEq, PartialOrd, Serialize, Deserialize)]
 struct Partial<T>(pub T);
