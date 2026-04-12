@@ -21,9 +21,8 @@ Documentation for qsv-stats exists here:
 
 ### Installation
 
-Simply add `qsv-stats` as a dependency to your project's `Cargo.toml`:
+Simply add `qsv-stats` as a dependency to your project:
 
-```toml
-[dependencies]
-qsv-stats = "0.47.0"
+```bash
+cargo add qsv-stats
 ```
