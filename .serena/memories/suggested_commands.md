@@ -3,7 +3,7 @@
 ## Development
 - `cargo build` - Debug build
 - `cargo build --release` - Release build
-- `cargo test --lib` - Run all library tests (148 tests)
+- `cargo test --lib` - Run all library tests
 - `cargo test <name>` - Run specific test
 - `cargo clippy --lib` - Lint check
 - `cargo fmt` - Format code

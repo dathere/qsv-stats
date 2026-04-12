@@ -593,9 +593,10 @@ mod test_nan_inf {
         minmax.add(1.0f64);
         minmax.add(f64::NAN);
         minmax.add(3.0f64);
-        // NaN comparisons are arbitrary via Partial<T>, but should not panic
-        assert!(minmax.min().is_some());
-        assert!(minmax.max().is_some());
+        // NaN is unordered for PartialOrd, so it should not update min/max
+        // and adding it should not panic.
+        assert_eq!(minmax.min(), Some(&1.0f64));
+        assert_eq!(minmax.max(), Some(&3.0f64));
     }
 
     #[test]

@@ -1113,9 +1113,9 @@ where
 #[allow(clippy::unsafe_derive_deserialize)]
 #[derive(Clone, Serialize, Deserialize, Eq, PartialEq)]
 pub struct Unsorted<T> {
-    /// Always reset to `false` on deserialization to prevent invalid state where
-    /// `sorted` is `true` but `data` is not actually sorted.
-    #[serde(skip_deserializing)]
+    /// Internal cache flag — skipped during serialization and deserialization.
+    /// Always defaults to `false`, ensuring data is re-sorted when needed.
+    #[serde(skip)]
     sorted: bool,
     data: Vec<Partial<T>>,
 }
