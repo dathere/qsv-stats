@@ -2894,7 +2894,7 @@ mod test {
         // Gini with infinity in the data: the weighted_sum/sum ratio involves
         // Inf/Inf which is NaN, so the result is Some(NaN) — not a meaningful
         // Gini coefficient, but importantly does not panic
-        assert!(g.is_some());
+        assert!(g.unwrap().is_nan());
     }
 
     #[test]
