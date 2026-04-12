@@ -31,10 +31,14 @@ pub use unsorted::{
 /// order: it can violate antisymmetry as well as transitivity, so ordering results
 /// are unspecified/inconsistent for such values.
 /// - `OnlineStats::add()` / `add_f64()` skip `NaN` inputs, so `OnlineStats` never sees `NaN`
-/// - `Unsorted<T>` and `MinMax<T>` do NOT filter `NaN` — if `NaN` is present, algorithms
-///   that assume a valid total order may produce surprising results or panic
-/// - This cannot cause UB in safe Rust, but behavior may still be odd because the
-///   comparator does not satisfy the `Ord` contract
+/// - `Unsorted<T>` does NOT filter `NaN` and uses this `Ord` implementation for sorting,
+///   so if `NaN` is present, algorithms that assume a valid total order may produce
+///   surprising results or panic
+/// - `MinMax<T>` does NOT use `Partial<T>` or sorting; it relies on `PartialOrd`
+///   comparisons and effectively ignores `NaN` values rather than panicking for this
+///   reason
+/// - This cannot cause UB in safe Rust, but behavior may still be odd anywhere this
+///   comparator is used because it does not satisfy the `Ord` contract
 #[allow(clippy::derive_ord_xor_partial_ord)]
 #[derive(Clone, PartialEq, PartialOrd, Serialize, Deserialize)]
 struct Partial<T>(pub T);
