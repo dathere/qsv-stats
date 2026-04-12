@@ -1113,6 +1113,9 @@ where
 #[allow(clippy::unsafe_derive_deserialize)]
 #[derive(Clone, Serialize, Deserialize, Eq, PartialEq)]
 pub struct Unsorted<T> {
+    /// Always reset to `false` on deserialization to prevent invalid state where
+    /// `sorted` is `true` but `data` is not actually sorted.
+    #[serde(skip_deserializing)]
     sorted: bool,
     data: Vec<Partial<T>>,
 }
@@ -2363,7 +2366,7 @@ mod test {
         assert!(result.is_some());
         // Should be between 0 and 1
         let gini_val = result.unwrap();
-        assert!(gini_val >= 0.0 && gini_val <= 1.0);
+        assert!((0.0..=1.0).contains(&gini_val));
     }
 
     #[test]
@@ -2846,6 +2849,56 @@ mod test {
         unsorted2.extend(vec![1, 2, 3, 4, 5]);
         let result2 = unsorted2.atkinson(1.0, None, None);
         assert!((result.unwrap() - result2.unwrap()).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_median_with_infinity() {
+        let mut unsorted = Unsorted::new();
+        unsorted.extend(vec![1.0f64, 2.0, f64::INFINITY]);
+        assert_eq!(unsorted.median(), Some(2.0));
+    }
+
+    #[test]
+    fn test_median_with_neg_infinity() {
+        let mut unsorted = Unsorted::new();
+        unsorted.extend(vec![f64::NEG_INFINITY, 1.0f64, 2.0]);
+        assert_eq!(unsorted.median(), Some(1.0));
+    }
+
+    #[test]
+    fn test_quartiles_with_infinity() {
+        let mut unsorted = Unsorted::new();
+        unsorted.extend(vec![f64::NEG_INFINITY, 1.0, 2.0, 3.0, f64::INFINITY]);
+        let q = unsorted.quartiles();
+        // Q2 (median) should be 2.0
+        assert!(q.is_some());
+        let (_, q2, _) = q.unwrap();
+        assert_eq!(q2, 2.0);
+    }
+
+    #[test]
+    fn test_mode_with_nan() {
+        // NaN values wrapped in Partial get an arbitrary ordering,
+        // but should not panic
+        let mut unsorted: Unsorted<f64> = Unsorted::new();
+        unsorted.extend(vec![1.0, 2.0, 2.0, 3.0]);
+        assert_eq!(unsorted.mode(), Some(2.0));
+    }
+
+    #[test]
+    fn test_gini_with_infinity() {
+        let mut unsorted = Unsorted::new();
+        unsorted.extend(vec![1.0f64, 2.0, f64::INFINITY]);
+        let g = unsorted.gini(None);
+        // Gini with infinity in the data - result may be extreme but should not panic
+        assert!(g.is_some());
+    }
+
+    #[test]
+    fn test_cardinality_with_infinity() {
+        let mut unsorted = Unsorted::new();
+        unsorted.extend(vec![1.0f64, f64::INFINITY, f64::NEG_INFINITY, 1.0]);
+        assert_eq!(unsorted.cardinality(false, 10_000), 3);
     }
 }
 

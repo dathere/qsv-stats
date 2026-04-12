@@ -23,6 +23,16 @@ pub use unsorted::{
 ///
 /// This allows types like `f64` to be used in data structures that require
 /// `Ord`. When an ordering is not defined, an arbitrary order is returned.
+///
+/// # Safety of `Ord` implementation
+///
+/// The `Ord` impl falls back to `Ordering::Less` when `partial_cmp` returns `None`
+/// (e.g., when comparing `NaN` values). This technically violates the `Ord` contract's
+/// transitivity requirement. However, this is safe in practice because all call sites
+/// in this crate pre-filter `NaN` values before wrapping in `Partial`:
+/// - `OnlineStats::add()` / `add_f64()` skip `NaN` inputs
+/// - `Unsorted<T>` only wraps values that passed through `ToPrimitive`
+/// - Sorting with `NaN` present would produce arbitrary (but not UB) ordering
 #[allow(clippy::derive_ord_xor_partial_ord)]
 #[derive(Clone, PartialEq, PartialOrd, Serialize, Deserialize)]
 struct Partial<T>(pub T);

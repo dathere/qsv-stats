@@ -717,4 +717,78 @@ mod test {
         assert_eq!(zero, 1);
         assert_eq!(pos, 1);
     }
+
+    #[test]
+    fn test_nan_skipped() {
+        let mut stats = OnlineStats::new();
+        stats.add(&1.0f64);
+        stats.add(&f64::NAN);
+        stats.add(&3.0f64);
+        // NaN should be silently skipped - only 2 values counted
+        assert_eq!(stats.len(), 2);
+        assert!((stats.mean() - 2.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_nan_only() {
+        let mut stats = OnlineStats::new();
+        stats.add(&f64::NAN);
+        stats.add(&f64::NAN);
+        assert_eq!(stats.len(), 0);
+        assert!(stats.mean().is_nan());
+        assert!(stats.variance().is_nan());
+        assert!(stats.stddev().is_nan());
+    }
+
+    #[test]
+    fn test_infinity_add() {
+        let mut stats = OnlineStats::new();
+        stats.add(&f64::INFINITY);
+        assert_eq!(stats.len(), 1);
+        assert!(stats.mean().is_infinite());
+    }
+
+    #[test]
+    fn test_neg_infinity_add() {
+        let mut stats = OnlineStats::new();
+        stats.add(&f64::NEG_INFINITY);
+        assert_eq!(stats.len(), 1);
+        assert!(stats.mean().is_infinite());
+    }
+
+    #[test]
+    fn test_infinity_mixed() {
+        let mut stats = OnlineStats::new();
+        stats.add(&f64::INFINITY);
+        stats.add(&f64::NEG_INFINITY);
+        // Inf + (-Inf) produces NaN for the mean
+        assert!(stats.mean().is_nan());
+    }
+
+    #[test]
+    fn test_add_f64_nan_skipped() {
+        let mut stats = OnlineStats::new();
+        stats.add_f64(1.0);
+        stats.add_f64(f64::NAN);
+        stats.add_f64(3.0);
+        assert_eq!(stats.len(), 2);
+        assert!((stats.mean() - 2.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_geometric_mean_infinity() {
+        let mut stats = OnlineStats::new();
+        stats.add(&f64::INFINITY);
+        // ln(Inf) = Inf, so geometric_sum becomes Inf -> returns NaN
+        assert!(stats.geometric_mean().is_nan());
+    }
+
+    #[test]
+    fn test_harmonic_mean_infinity() {
+        let mut stats = OnlineStats::new();
+        stats.add(&f64::INFINITY);
+        stats.add(&1.0f64);
+        // 1/Inf = 0, so harmonic_sum = 0 + 1 = 1, result = 2/1 = 2
+        assert!((stats.harmonic_mean() - 2.0).abs() < 1e-10);
+    }
 }
