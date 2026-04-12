@@ -307,7 +307,7 @@ where
                 .map(|(i, x)| {
                     // SAFETY: to_f64() always returns Some for standard numeric types
                     let val = unsafe { x.0.to_f64().unwrap_unchecked() };
-                    ((i + 1) as f64).mul_add(val, 0.0)
+                    (i + 1) as f64 * val
                 })
                 .sum()
         };
@@ -1111,11 +1111,25 @@ where
 /// `f32` and `f64`. When an ordering is not defined, an arbitrary order
 /// is returned.
 #[allow(clippy::unsafe_derive_deserialize)]
-#[derive(Clone, Serialize, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct Unsorted<T> {
+    /// Internal cache flag indicating whether `data` is currently sorted.
+    /// This field is skipped during serialization and deserialization.
+    #[serde(skip)]
     sorted: bool,
     data: Vec<Partial<T>>,
 }
+
+// Manual PartialEq/Eq: ignore `sorted` cache flag so equality reflects
+// logical contents only (two Unsorted with same data compare equal
+// regardless of whether one has been sorted).
+impl<T: PartialEq> PartialEq for Unsorted<T> {
+    fn eq(&self, other: &Self) -> bool {
+        self.data == other.data
+    }
+}
+
+impl<T: PartialEq> Eq for Unsorted<T> where Partial<T>: Eq {}
 
 impl<T: PartialOrd + Send> Unsorted<T> {
     /// Create initial empty state.
@@ -2363,7 +2377,7 @@ mod test {
         assert!(result.is_some());
         // Should be between 0 and 1
         let gini_val = result.unwrap();
-        assert!(gini_val >= 0.0 && gini_val <= 1.0);
+        assert!((0.0..=1.0).contains(&gini_val));
     }
 
     #[test]
@@ -2846,6 +2860,59 @@ mod test {
         unsorted2.extend(vec![1, 2, 3, 4, 5]);
         let result2 = unsorted2.atkinson(1.0, None, None);
         assert!((result.unwrap() - result2.unwrap()).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_median_with_infinity() {
+        let mut unsorted = Unsorted::new();
+        unsorted.extend(vec![1.0f64, 2.0, f64::INFINITY]);
+        assert_eq!(unsorted.median(), Some(2.0));
+    }
+
+    #[test]
+    fn test_median_with_neg_infinity() {
+        let mut unsorted = Unsorted::new();
+        unsorted.extend(vec![f64::NEG_INFINITY, 1.0f64, 2.0]);
+        assert_eq!(unsorted.median(), Some(1.0));
+    }
+
+    #[test]
+    fn test_quartiles_with_infinity() {
+        let mut unsorted = Unsorted::new();
+        unsorted.extend(vec![f64::NEG_INFINITY, 1.0, 2.0, 3.0, f64::INFINITY]);
+        let q = unsorted.quartiles();
+        // Q2 (median) should be 2.0
+        assert!(q.is_some());
+        let (_, q2, _) = q.unwrap();
+        assert_eq!(q2, 2.0);
+    }
+
+    #[test]
+    fn test_mode_with_nan() {
+        // NaN breaks the Ord contract via Partial<T>, so sort order is
+        // non-deterministic. We only verify the call doesn't panic —
+        // the exact mode value depends on where NaN lands after sorting.
+        let mut unsorted: Unsorted<f64> = Unsorted::new();
+        unsorted.extend(vec![1.0, f64::NAN, 2.0, 2.0, 3.0]);
+        let _result = unsorted.mode(); // must not panic
+    }
+
+    #[test]
+    fn test_gini_with_infinity() {
+        let mut unsorted = Unsorted::new();
+        unsorted.extend(vec![1.0f64, 2.0, f64::INFINITY]);
+        let g = unsorted.gini(None);
+        // Gini with infinity in the data: the weighted_sum/sum ratio involves
+        // Inf/Inf which is NaN, so the result is Some(NaN) — not a meaningful
+        // Gini coefficient, but importantly does not panic
+        assert!(g.unwrap().is_nan());
+    }
+
+    #[test]
+    fn test_cardinality_with_infinity() {
+        let mut unsorted = Unsorted::new();
+        unsorted.extend(vec![1.0f64, f64::INFINITY, f64::NEG_INFINITY, 1.0]);
+        assert_eq!(unsorted.cardinality(false, 10_000), 3);
     }
 }
 

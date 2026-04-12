@@ -22,7 +22,23 @@ pub use unsorted::{
 /// Partial wraps a type that satisfies `PartialOrd` and implements `Ord`.
 ///
 /// This allows types like `f64` to be used in data structures that require
-/// `Ord`. When an ordering is not defined, an arbitrary order is returned.
+/// `Ord`. When an ordering is not defined, a fallback ordering is returned.
+///
+/// # Safety of `Ord` implementation
+///
+/// The `Ord` impl falls back to `Ordering::Less` when `partial_cmp` returns `None`
+/// (for example, when comparing `NaN` values). This does not define a valid total
+/// order: it can violate antisymmetry as well as transitivity, so ordering results
+/// are unspecified/inconsistent for such values.
+/// - `OnlineStats::add()` / `add_f64()` skip `NaN` inputs, so `OnlineStats` never sees `NaN`
+/// - `Unsorted<T>` does NOT filter `NaN` and uses this `Ord` implementation for sorting,
+///   so if `NaN` is present, algorithms that assume a valid total order may produce
+///   surprising results or panic
+/// - `MinMax<T>` does NOT use `Partial<T>` or sorting; it relies on `PartialOrd`
+///   comparisons and effectively ignores `NaN` values rather than panicking for this
+///   reason
+/// - This cannot cause UB in safe Rust, but behavior may still be odd anywhere this
+///   comparator is used because it does not satisfy the `Ord` contract
 #[allow(clippy::derive_ord_xor_partial_ord)]
 #[derive(Clone, PartialEq, PartialOrd, Serialize, Deserialize)]
 struct Partial<T>(pub T);

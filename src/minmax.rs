@@ -582,3 +582,46 @@ fn test_sortiness_simple_alphabetical() {
     assert_eq!(minmax.sortiness(), 0.3333333333333333);
     assert_eq!(minmax.sort_order(), SortOrder::Unsorted);
 }
+
+#[cfg(test)]
+mod test_nan_inf {
+    use super::MinMax;
+
+    #[test]
+    fn test_minmax_nan() {
+        let mut minmax = MinMax::new();
+        minmax.add(1.0f64);
+        minmax.add(f64::NAN);
+        minmax.add(3.0f64);
+        // NaN is unordered for PartialOrd, so it should not update min/max
+        // and adding it should not panic.
+        assert_eq!(minmax.min(), Some(&1.0f64));
+        assert_eq!(minmax.max(), Some(&3.0f64));
+    }
+
+    #[test]
+    fn test_minmax_infinity() {
+        let mut minmax = MinMax::new();
+        minmax.add(1.0f64);
+        minmax.add(f64::INFINITY);
+        minmax.add(f64::NEG_INFINITY);
+        assert_eq!(minmax.min(), Some(&f64::NEG_INFINITY));
+        assert_eq!(minmax.max(), Some(&f64::INFINITY));
+    }
+
+    #[test]
+    fn test_minmax_only_infinities() {
+        let mut minmax = MinMax::new();
+        minmax.add(f64::INFINITY);
+        minmax.add(f64::NEG_INFINITY);
+        assert_eq!(minmax.min(), Some(&f64::NEG_INFINITY));
+        assert_eq!(minmax.max(), Some(&f64::INFINITY));
+        assert_eq!(minmax.len(), 2);
+    }
+
+    #[test]
+    fn test_sortiness_with_infinity() {
+        let minmax: MinMax<f64> = vec![1.0, 2.0, f64::INFINITY].into_iter().collect();
+        assert_eq!(minmax.sortiness(), 1.0); // ascending including infinity
+    }
+}
