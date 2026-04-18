@@ -368,9 +368,7 @@ where
     }
 
     // Use pre-calculated mean if provided, otherwise compute it
-    let mean = if let Some(precalc) = precalc_mean {
-        precalc
-    } else {
+    let mean = precalc_mean.unwrap_or_else(|| {
         let sum: f64 = if len < PARALLEL_THRESHOLD {
             // Iterator sum enables auto-vectorization (SIMD) by the compiler
             data.iter()
@@ -384,7 +382,7 @@ where
                 .sum()
         };
         sum / len as f64
-    };
+    });
 
     // Compute variance_sq and fourth_power_sum
     // If variance is provided, we can compute variance_sq directly (variance_sq = variance^2)
@@ -475,7 +473,8 @@ where
     // kurtosis = (n(n+1) * Σ((x_i - mean)⁴)) / ((n-1)(n-2)(n-3) * variance²) - 3(n-1)²/((n-2)(n-3))
     let denominator = (n - 1.0) * (n - 2.0) * (n - 3.0);
     let adjustment = 3.0 * (n - 1.0) * (n - 1.0) / denominator;
-    let kurtosis = (n * (n + 1.0) * fourth_power_sum).mul_add(1.0 / (denominator * variance_sq), -adjustment);
+    let kurtosis =
+        (n * (n + 1.0) * fourth_power_sum).mul_add(1.0 / (denominator * variance_sq), -adjustment);
 
     Some(kurtosis)
 }
@@ -546,9 +545,7 @@ where
     }
 
     // Use pre-calculated mean if provided, otherwise compute it
-    let mean = if let Some(precalc) = precalc_mean {
-        precalc
-    } else {
+    let mean = precalc_mean.unwrap_or_else(|| {
         let sum: f64 = if len < PARALLEL_THRESHOLD {
             // Iterator sum enables auto-vectorization (SIMD) by the compiler
             data.iter()
@@ -562,7 +559,7 @@ where
                 .sum()
         };
         sum / len as f64
-    };
+    });
 
     // If mean is zero, Atkinson is undefined
     if mean == 0.0 {
@@ -868,8 +865,11 @@ where
         0..=2 => return None,
         3 => {
             let mut indices: Vec<usize> = (0..3).collect();
-            let cmp =
-                |a: &usize, b: &usize| data[*a].partial_cmp(&data[*b]).unwrap_or(std::cmp::Ordering::Less);
+            let cmp = |a: &usize, b: &usize| {
+                data[*a]
+                    .partial_cmp(&data[*b])
+                    .unwrap_or(std::cmp::Ordering::Less)
+            };
             indices.sort_unstable_by(cmp);
             let min_val = data[indices[0]].0.to_f64()?;
             let med_val = data[indices[1]].0.to_f64()?;
