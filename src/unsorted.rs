@@ -195,7 +195,10 @@ where
 {
     Some(match data.len() {
         // Empty slice case - return None early
-        0 => return None,
+        0 => {
+            core::hint::cold_path();
+            return None;
+        }
         // Single element case - return that element converted to f64
         1 => data.first()?.to_f64()?,
         // Even length case - average the two middle elements
@@ -218,6 +221,7 @@ where
     T: Sync + PartialOrd + ToPrimitive,
 {
     if data.is_empty() {
+        core::hint::cold_path();
         return None;
     }
     let median_obs = precalc_median.unwrap_or_else(|| median_on_sorted(data).unwrap());
@@ -268,11 +272,13 @@ where
 
     // Early return for empty data
     if len == 0 {
+        core::hint::cold_path();
         return None;
     }
 
     // Single element case: perfect equality, Gini = 0
     if len == 1 {
+        core::hint::cold_path();
         return Some(0.0);
     }
 
@@ -281,6 +287,7 @@ where
     // SAFETY: len > 1 guaranteed by checks above
     let first_val = unsafe { data.get_unchecked(0).0.to_f64().unwrap_unchecked() };
     if first_val < 0.0 {
+        core::hint::cold_path();
         return None;
     }
 
@@ -290,6 +297,7 @@ where
     // to halve cache pressure (following the fold/reduce pattern used in kurtosis).
     let (sum, weighted_sum) = if let Some(precalc) = precalc_sum {
         if precalc < 0.0 {
+            core::hint::cold_path();
             return None;
         }
         // Only need weighted_sum — single pass
@@ -340,6 +348,7 @@ where
 
     // If sum is zero, Gini is undefined
     if sum == 0.0 {
+        core::hint::cold_path();
         return None;
     }
 
@@ -364,6 +373,7 @@ where
 
     // Need at least 4 elements for meaningful kurtosis
     if len < 4 {
+        core::hint::cold_path();
         return None;
     }
 
@@ -390,6 +400,7 @@ where
     let (variance_sq, fourth_power_sum) = if let Some(variance) = precalc_variance {
         // Negative variance is invalid (possible floating-point rounding artifact)
         if variance < 0.0 {
+            core::hint::cold_path();
             return None;
         }
         // Use pre-calculated variance: variance_sq = variance^2
@@ -455,6 +466,7 @@ where
 
         // If variance is zero, all values are the same, kurtosis is undefined
         if variance == 0.0 {
+            core::hint::cold_path();
             return None;
         }
 
@@ -464,6 +476,7 @@ where
 
     // If variance_sq is zero, all values are the same, kurtosis is undefined
     if variance_sq == 0.0 {
+        core::hint::cold_path();
         return None;
     }
 
@@ -487,6 +500,7 @@ where
     let len = data.len();
 
     if len == 0 {
+        core::hint::cold_path();
         return None;
     }
 
@@ -531,16 +545,19 @@ where
 
     // Early return for empty data
     if len == 0 {
+        core::hint::cold_path();
         return None;
     }
 
     // Single element case: perfect equality, Atkinson = 0
     if len == 1 {
+        core::hint::cold_path();
         return Some(0.0);
     }
 
     // Epsilon must be non-negative
     if epsilon < 0.0 {
+        core::hint::cold_path();
         return None;
     }
 
@@ -563,6 +580,7 @@ where
 
     // If mean is zero, Atkinson is undefined
     if mean == 0.0 {
+        core::hint::cold_path();
         return None;
     }
 
@@ -597,6 +615,7 @@ where
         };
 
         if geometric_sum.is_nan() {
+            core::hint::cold_path();
             return None;
         }
 
@@ -636,6 +655,7 @@ where
     };
 
     if sum_powered.is_nan() || sum_powered <= 0.0 {
+        core::hint::cold_path();
         return None;
     }
 
@@ -651,6 +671,7 @@ where
     T: PartialOrd,
 {
     if data.is_empty() || k >= data.len() {
+        core::hint::cold_path();
         return None;
     }
 
@@ -736,7 +757,10 @@ where
 
     // Early return for small arrays
     match len {
-        0..=2 => return None,
+        0..=2 => {
+            core::hint::cold_path();
+            return None;
+        }
         3 => {
             return Some(
                 // SAFETY: We know these indices are valid because len == 3
@@ -862,7 +886,10 @@ where
 
     // Early return for small arrays
     match len {
-        0..=2 => return None,
+        0..=2 => {
+            core::hint::cold_path();
+            return None;
+        }
         3 => {
             let mut indices: Vec<usize> = (0..3).collect();
             let cmp = |a: &usize, b: &usize| {
@@ -1020,6 +1047,7 @@ where
 
     // Early return for empty slice
     if size == 0 {
+        core::hint::cold_path();
         return ((Vec::new(), 0, 0), (Vec::new(), 0, 0));
     }
 
