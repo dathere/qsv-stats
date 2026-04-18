@@ -155,17 +155,21 @@ impl<T: Eq + Hash> Frequencies<T> {
     {
         use std::collections::BinaryHeap;
 
-        // We use a min-heap of size n to keep track of the largest elements
-        let mut heap = BinaryHeap::with_capacity(n + 1);
+        // Min-heap (via Reverse) of the n largest elements seen so far.
+        // peek() returns the smallest entry currently in the top-N — replace it
+        // only when a strictly larger count comes in. Avoids a push+pop per
+        // rejected element on high-cardinality inputs with small n.
+        let mut heap = BinaryHeap::with_capacity(n);
 
         for (item, count) in &self.data {
-            // Negate count because BinaryHeap is a max-heap
-            // and we want to remove smallest elements
-            heap.push(std::cmp::Reverse((*count, item)));
-
-            // Keep heap size at n
-            if heap.len() > n {
+            let candidate = (*count, item);
+            if heap.len() < n {
+                heap.push(std::cmp::Reverse(candidate));
+            } else if let Some(top) = heap.peek()
+                && candidate > top.0
+            {
                 heap.pop();
+                heap.push(std::cmp::Reverse(candidate));
             }
         }
 
@@ -184,12 +188,18 @@ impl<T: Eq + Hash> Frequencies<T> {
     {
         use std::collections::BinaryHeap;
 
-        let mut heap = BinaryHeap::with_capacity(n + 1);
+        // Max-heap of the n smallest elements seen so far. Mirror of top_n.
+        let mut heap = BinaryHeap::with_capacity(n);
 
         for (item, count) in &self.data {
-            heap.push((*count, item));
-            if heap.len() > n {
+            let candidate = (*count, item);
+            if heap.len() < n {
+                heap.push(candidate);
+            } else if let Some(top) = heap.peek()
+                && candidate < *top
+            {
                 heap.pop();
+                heap.push(candidate);
             }
         }
 
