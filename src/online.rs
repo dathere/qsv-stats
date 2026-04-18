@@ -93,7 +93,11 @@ impl OnlineStats {
     // https://en.wikipedia.org/wiki/Algorithms_for_calculating_variance
     #[must_use]
     pub const fn variance(&self) -> f64 {
-        if self.is_empty() { f64::NAN } else { self.q / (self.size as f64) }
+        if self.is_empty() {
+            f64::NAN
+        } else {
+            self.q / (self.size as f64)
+        }
     }
 
     /// Return the current harmonic mean.

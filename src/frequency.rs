@@ -106,9 +106,8 @@ impl<T: Eq + Hash> Frequencies<T> {
         // equal counts
         if least {
             // return counts in ascending order
-            let sort_fn = |&(v1, c1): &(&T, u64), &(v2, c2): &(&T, u64)| {
-                c1.cmp(&c2).then_with(|| v1.cmp(v2))
-            };
+            let sort_fn =
+                |&(v1, c1): &(&T, u64), &(v2, c2): &(&T, u64)| c1.cmp(&c2).then_with(|| v1.cmp(v2));
             if counts.len() < PARALLEL_THRESHOLD {
                 counts.sort_unstable_by(sort_fn);
             } else {
@@ -116,9 +115,8 @@ impl<T: Eq + Hash> Frequencies<T> {
             }
         } else {
             // return counts in descending order
-            let sort_fn = |&(v1, c1): &(&T, u64), &(v2, c2): &(&T, u64)| {
-                c2.cmp(&c1).then_with(|| v1.cmp(v2))
-            };
+            let sort_fn =
+                |&(v1, c1): &(&T, u64), &(v2, c2): &(&T, u64)| c2.cmp(&c1).then_with(|| v1.cmp(v2));
             if counts.len() < PARALLEL_THRESHOLD {
                 counts.sort_unstable_by(sort_fn);
             } else {
