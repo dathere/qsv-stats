@@ -1052,14 +1052,7 @@ where
     }
 
     // Estimate capacity using integer square root of size
-    // Integer square root using Newton's method (faster than floating point sqrt)
-    let mut x = size;
-    let mut y = x.div_ceil(2);
-    while y < x {
-        x = y;
-        y = usize::midpoint(x, size / x);
-    }
-    let sqrt_size = x;
+    let sqrt_size = size.isqrt();
     let mut runs: Vec<(&T, u32)> = Vec::with_capacity(sqrt_size.clamp(16, 1_000));
 
     let mut current_value = &data[0].0;
