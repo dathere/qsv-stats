@@ -566,14 +566,17 @@ where
     // Fused fast path: epsilon=1 with no precalc — compute sum (for mean) and
     // ln_sum (for geometric_sum) in a single pass over data, halving memory bandwidth.
     if epsilon_is_one && precalc_mean.is_none() && precalc_geometric_sum.is_none() {
-        let (sum, ln_sum, any_non_positive) = if len < PARALLEL_THRESHOLD {
+        // Explicit NaN check plus `v <= 0.0` rejects NaN, zero, negatives, and
+        // -infinity. The non-fused epsilon=1 branch rejects NaN via a post-sum
+        // `is_nan()` check; handling it per-element here is equivalent.
+        let (sum, ln_sum, any_invalid) = if len < PARALLEL_THRESHOLD {
             let mut s = 0.0f64;
             let mut ls = 0.0f64;
             let mut bad = false;
             for x in data {
                 // SAFETY: to_f64() always returns Some for standard numeric types
                 let v = unsafe { x.0.to_f64().unwrap_unchecked() };
-                if v <= 0.0 {
+                if v.is_nan() || v <= 0.0 {
                     bad = true;
                 } else {
                     s += v;
@@ -588,7 +591,7 @@ where
                     |(s, ls, bad), x| {
                         // SAFETY: to_f64() always returns Some for standard numeric types
                         let v = unsafe { x.0.to_f64().unwrap_unchecked() };
-                        if v <= 0.0 {
+                        if v.is_nan() || v <= 0.0 {
                             (s, ls, true)
                         } else {
                             (s + v, ls + v.ln(), bad)
@@ -600,7 +603,7 @@ where
                     |a, b| (a.0 + b.0, a.1 + b.1, a.2 || b.2),
                 )
         };
-        if any_non_positive {
+        if any_invalid {
             core::hint::cold_path();
             return None;
         }
@@ -2859,6 +2862,15 @@ mod test {
         unsorted.extend(vec![1, 2, 3, 4, 5]);
         let result = unsorted.atkinson(1.0, None, None);
         assert!(result.is_some());
+    }
+
+    #[test]
+    fn atkinson_epsilon_one_rejects_nan() {
+        // NaN in the data must return None, not Some(NaN), for the fused
+        // (epsilon=1, no precalc) fast path.
+        let mut unsorted = Unsorted::new();
+        unsorted.extend(vec![1.0_f64, 2.0, f64::NAN, 4.0, 5.0]);
+        assert_eq!(unsorted.atkinson(1.0, None, None), None);
     }
 
     #[test]
