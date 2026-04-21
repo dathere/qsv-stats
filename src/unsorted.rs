@@ -561,6 +561,58 @@ where
         return None;
     }
 
+    let epsilon_is_one = (epsilon - 1.0).abs() < 1e-10;
+
+    // Fused fast path: epsilon=1 with no precalc — compute sum (for mean) and
+    // ln_sum (for geometric_sum) in a single pass over data, halving memory bandwidth.
+    if epsilon_is_one && precalc_mean.is_none() && precalc_geometric_sum.is_none() {
+        let (sum, ln_sum, any_non_positive) = if len < PARALLEL_THRESHOLD {
+            let mut s = 0.0f64;
+            let mut ls = 0.0f64;
+            let mut bad = false;
+            for x in data {
+                // SAFETY: to_f64() always returns Some for standard numeric types
+                let v = unsafe { x.0.to_f64().unwrap_unchecked() };
+                if v <= 0.0 {
+                    bad = true;
+                } else {
+                    s += v;
+                    ls += v.ln();
+                }
+            }
+            (s, ls, bad)
+        } else {
+            data.par_iter()
+                .fold(
+                    || (0.0f64, 0.0f64, false),
+                    |(s, ls, bad), x| {
+                        // SAFETY: to_f64() always returns Some for standard numeric types
+                        let v = unsafe { x.0.to_f64().unwrap_unchecked() };
+                        if v <= 0.0 {
+                            (s, ls, true)
+                        } else {
+                            (s + v, ls + v.ln(), bad)
+                        }
+                    },
+                )
+                .reduce(
+                    || (0.0, 0.0, false),
+                    |a, b| (a.0 + b.0, a.1 + b.1, a.2 || b.2),
+                )
+        };
+        if any_non_positive {
+            core::hint::cold_path();
+            return None;
+        }
+        let mean = sum / len as f64;
+        if mean == 0.0 {
+            core::hint::cold_path();
+            return None;
+        }
+        let geometric_mean = (ln_sum / len as f64).exp();
+        return Some(1.0 - geometric_mean / mean);
+    }
+
     // Use pre-calculated mean if provided, otherwise compute it
     let mean = precalc_mean.unwrap_or_else(|| {
         let sum: f64 = if len < PARALLEL_THRESHOLD {
@@ -584,8 +636,10 @@ where
         return None;
     }
 
-    // Handle special case: epsilon = 1 (uses geometric mean)
-    if (epsilon - 1.0).abs() < 1e-10 {
+    // Handle special case: epsilon = 1 (uses geometric mean).
+    // Reached only when precalc_mean and/or precalc_geometric_sum was supplied;
+    // the fully-unsupplied case is handled by the fused fast path above.
+    if epsilon_is_one {
         // A_1 = 1 - (geometric_mean / mean)
         let geometric_sum: f64 = if let Some(precalc) = precalc_geometric_sum {
             precalc
@@ -626,6 +680,8 @@ where
     // General case: epsilon != 1
     // A_ε = 1 - (1/n * Σ((x_i/mean)^(1-ε)))^(1/(1-ε))
     let exponent = 1.0 - epsilon;
+    // Hoist reciprocal: replace per-element division with multiplication in the hot loop.
+    let inv_mean = mean.recip();
 
     let sum_powered: f64 = if len < PARALLEL_THRESHOLD {
         let mut sum = 0.0;
@@ -636,7 +692,7 @@ where
                 // Negative values with non-integer exponent are undefined
                 return None;
             }
-            let ratio = val / mean;
+            let ratio = val * inv_mean;
             sum += ratio.powf(exponent);
         }
         sum
@@ -648,7 +704,7 @@ where
                 if val < 0.0 {
                     return f64::NAN;
                 }
-                let ratio = val / mean;
+                let ratio = val * inv_mean;
                 ratio.powf(exponent)
             })
             .sum()
