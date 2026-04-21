@@ -1265,11 +1265,10 @@ impl<T: PartialOrd + PartialEq + Clone + Send + Sync> Unsorted<T> {
                 || len > parallel_threshold.max(DEFAULT_PARALLEL_THRESHOLD));
 
         if use_parallel {
-            // Parallel processing using chunks
-            // Process chunks in parallel, returning (count, first_elem, last_elem) for each
-            type ChunkInfo<'a, T> = Vec<(u64, Option<&'a Partial<T>>, Option<&'a Partial<T>>)>;
-            let chunk_info: ChunkInfo<'_, T> = self
-                .data
+            // Parallel processing using chunks via fold/reduce — no intermediate Vec.
+            // Reduction state: (count, leftmost_first, rightmost_last). Associative:
+            // combining (cL, fL, lL) with (cR, fR, lR) yields (cL+cR - [lL==fR], fL, lR).
+            self.data
                 .par_chunks(CHUNK_SIZE)
                 .map(|chunk| {
                     // Count unique elements within this chunk
@@ -1281,23 +1280,18 @@ impl<T: PartialOrd + PartialEq + Clone + Send + Sync> Unsorted<T> {
                     }
                     (count, chunk.first(), chunk.last())
                 })
-                .collect();
-
-            // Combine results, checking boundaries between chunks
-            let mut total = 0;
-            for (i, &(count, first_opt, _last_opt)) in chunk_info.iter().enumerate() {
-                total += count;
-
-                // Check boundary with previous chunk
-                if i > 0
-                    && let (Some(prev_last), Some(curr_first)) = (chunk_info[i - 1].2, first_opt)
-                    && prev_last == curr_first
-                {
-                    total -= 1; // Deduct 1 if boundary values are equal
-                }
-            }
-
-            total
+                .reduce(
+                    || (0u64, None, None),
+                    |(cl, fl, ll), (cr, fr, lr)| match (ll, fr) {
+                        (None, _) => (cr, fr, lr),
+                        (_, None) => (cl, fl, ll),
+                        (Some(l), Some(r)) => {
+                            let adj = u64::from(l == r);
+                            (cl + cr - adj, fl, lr)
+                        },
+                    },
+                )
+                .0
         } else {
             // Sequential processing
 
