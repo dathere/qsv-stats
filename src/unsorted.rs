@@ -561,6 +561,61 @@ where
         return None;
     }
 
+    let epsilon_is_one = (epsilon - 1.0).abs() < 1e-10;
+
+    // Fused fast path: epsilon=1 with no precalc — compute sum (for mean) and
+    // ln_sum (for geometric_sum) in a single pass over data, halving memory bandwidth.
+    if epsilon_is_one && precalc_mean.is_none() && precalc_geometric_sum.is_none() {
+        // Explicit NaN check plus `v <= 0.0` rejects NaN, zero, negatives, and
+        // -infinity. The non-fused epsilon=1 branch rejects NaN via a post-sum
+        // `is_nan()` check; handling it per-element here is equivalent.
+        let (sum, ln_sum, any_invalid) = if len < PARALLEL_THRESHOLD {
+            let mut s = 0.0f64;
+            let mut ls = 0.0f64;
+            let mut bad = false;
+            for x in data {
+                // SAFETY: to_f64() always returns Some for standard numeric types
+                let v = unsafe { x.0.to_f64().unwrap_unchecked() };
+                if v.is_nan() || v <= 0.0 {
+                    bad = true;
+                } else {
+                    s += v;
+                    ls += v.ln();
+                }
+            }
+            (s, ls, bad)
+        } else {
+            data.par_iter()
+                .fold(
+                    || (0.0f64, 0.0f64, false),
+                    |(s, ls, bad), x| {
+                        // SAFETY: to_f64() always returns Some for standard numeric types
+                        let v = unsafe { x.0.to_f64().unwrap_unchecked() };
+                        if v.is_nan() || v <= 0.0 {
+                            (s, ls, true)
+                        } else {
+                            (s + v, ls + v.ln(), bad)
+                        }
+                    },
+                )
+                .reduce(
+                    || (0.0, 0.0, false),
+                    |a, b| (a.0 + b.0, a.1 + b.1, a.2 || b.2),
+                )
+        };
+        if any_invalid {
+            core::hint::cold_path();
+            return None;
+        }
+        let mean = sum / len as f64;
+        if mean == 0.0 {
+            core::hint::cold_path();
+            return None;
+        }
+        let geometric_mean = (ln_sum / len as f64).exp();
+        return Some(1.0 - geometric_mean / mean);
+    }
+
     // Use pre-calculated mean if provided, otherwise compute it
     let mean = precalc_mean.unwrap_or_else(|| {
         let sum: f64 = if len < PARALLEL_THRESHOLD {
@@ -584,8 +639,10 @@ where
         return None;
     }
 
-    // Handle special case: epsilon = 1 (uses geometric mean)
-    if (epsilon - 1.0).abs() < 1e-10 {
+    // Handle special case: epsilon = 1 (uses geometric mean).
+    // Reached only when precalc_mean and/or precalc_geometric_sum was supplied;
+    // the fully-unsupplied case is handled by the fused fast path above.
+    if epsilon_is_one {
         // A_1 = 1 - (geometric_mean / mean)
         let geometric_sum: f64 = if let Some(precalc) = precalc_geometric_sum {
             precalc
@@ -626,6 +683,8 @@ where
     // General case: epsilon != 1
     // A_ε = 1 - (1/n * Σ((x_i/mean)^(1-ε)))^(1/(1-ε))
     let exponent = 1.0 - epsilon;
+    // Hoist reciprocal: replace per-element division with multiplication in the hot loop.
+    let inv_mean = mean.recip();
 
     let sum_powered: f64 = if len < PARALLEL_THRESHOLD {
         let mut sum = 0.0;
@@ -636,7 +695,7 @@ where
                 // Negative values with non-integer exponent are undefined
                 return None;
             }
-            let ratio = val / mean;
+            let ratio = val * inv_mean;
             sum += ratio.powf(exponent);
         }
         sum
@@ -648,7 +707,7 @@ where
                 if val < 0.0 {
                     return f64::NAN;
                 }
-                let ratio = val / mean;
+                let ratio = val * inv_mean;
                 ratio.powf(exponent)
             })
             .sum()
@@ -1265,11 +1324,10 @@ impl<T: PartialOrd + PartialEq + Clone + Send + Sync> Unsorted<T> {
                 || len > parallel_threshold.max(DEFAULT_PARALLEL_THRESHOLD));
 
         if use_parallel {
-            // Parallel processing using chunks
-            // Process chunks in parallel, returning (count, first_elem, last_elem) for each
-            type ChunkInfo<'a, T> = Vec<(u64, Option<&'a Partial<T>>, Option<&'a Partial<T>>)>;
-            let chunk_info: ChunkInfo<'_, T> = self
-                .data
+            // Parallel processing using chunks via fold/reduce — no intermediate Vec.
+            // Reduction state: (count, leftmost_first, rightmost_last). Associative:
+            // combining (cL, fL, lL) with (cR, fR, lR) yields (cL+cR - [lL==fR], fL, lR).
+            self.data
                 .par_chunks(CHUNK_SIZE)
                 .map(|chunk| {
                     // Count unique elements within this chunk
@@ -1281,23 +1339,21 @@ impl<T: PartialOrd + PartialEq + Clone + Send + Sync> Unsorted<T> {
                     }
                     (count, chunk.first(), chunk.last())
                 })
-                .collect();
-
-            // Combine results, checking boundaries between chunks
-            let mut total = 0;
-            for (i, &(count, first_opt, _last_opt)) in chunk_info.iter().enumerate() {
-                total += count;
-
-                // Check boundary with previous chunk
-                if i > 0
-                    && let (Some(prev_last), Some(curr_first)) = (chunk_info[i - 1].2, first_opt)
-                    && prev_last == curr_first
-                {
-                    total -= 1; // Deduct 1 if boundary values are equal
-                }
-            }
-
-            total
+                .reduce(
+                    || (0u64, None, None),
+                    |(cl, fl, ll), (cr, fr, lr)| match (ll, fr) {
+                        // `None` endpoints only arise from the identity today, but summing
+                        // counts in both arms keeps the combiner correct even if a future
+                        // mapper returns a non-empty chunk with `None` endpoints.
+                        (None, _) => (cl + cr, fr, lr),
+                        (_, None) => (cl + cr, fl, ll),
+                        (Some(l), Some(r)) => {
+                            let adj = u64::from(l == r);
+                            (cl + cr - adj, fl, lr)
+                        },
+                    },
+                )
+                .0
         } else {
             // Sequential processing
 
@@ -2806,6 +2862,15 @@ mod test {
         unsorted.extend(vec![1, 2, 3, 4, 5]);
         let result = unsorted.atkinson(1.0, None, None);
         assert!(result.is_some());
+    }
+
+    #[test]
+    fn atkinson_epsilon_one_rejects_nan() {
+        // NaN in the data must return None, not Some(NaN), for the fused
+        // (epsilon=1, no precalc) fast path.
+        let mut unsorted = Unsorted::new();
+        unsorted.extend(vec![1.0_f64, 2.0, f64::NAN, 4.0, 5.0]);
+        assert_eq!(unsorted.atkinson(1.0, None, None), None);
     }
 
     #[test]
