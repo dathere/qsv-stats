@@ -1283,8 +1283,11 @@ impl<T: PartialOrd + PartialEq + Clone + Send + Sync> Unsorted<T> {
                 .reduce(
                     || (0u64, None, None),
                     |(cl, fl, ll), (cr, fr, lr)| match (ll, fr) {
-                        (None, _) => (cr, fr, lr),
-                        (_, None) => (cl, fl, ll),
+                        // `None` endpoints only arise from the identity today, but summing
+                        // counts in both arms keeps the combiner correct even if a future
+                        // mapper returns a non-empty chunk with `None` endpoints.
+                        (None, _) => (cl + cr, fr, lr),
+                        (_, None) => (cl + cr, fl, ll),
                         (Some(l), Some(r)) => {
                             let adj = u64::from(l == r);
                             (cl + cr - adj, fl, lr)
