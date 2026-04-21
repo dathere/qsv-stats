@@ -17,15 +17,16 @@ pub enum SortOrder {
 /// and detecting sort order in a stream of data.
 #[derive(Clone, Copy, Deserialize, Serialize, Eq, PartialEq)]
 pub struct MinMax<T> {
-    // Hot fields: accessed on every add() call, grouped on same cache line
+    // Hot fields: accessed on every add() call, grouped on same cache line.
+    // `last_value` is read+written on every call; keep it adjacent to `len`.
     len: u32,
     ascending_pairs: u32,
     descending_pairs: u32,
-    // Warm fields: accessed conditionally
+    last_value: Option<T>,
+    // Warm fields: accessed conditionally (min/max only on updates, first_value only at len==1).
     min: Option<T>,
     max: Option<T>,
     first_value: Option<T>,
-    last_value: Option<T>,
 }
 
 impl<T: PartialOrd + Clone> MinMax<T> {
@@ -36,21 +37,48 @@ impl<T: PartialOrd + Clone> MinMax<T> {
     }
 
     /// Add a sample to the data and track min/max, the sort order & "sortiness".
-    #[inline]
+    #[inline(always)]
     pub fn add(&mut self, sample: T) {
         match self.len {
             // this comes first because it's the most common case
             2.. => {
-                if let Some(ref last) = self.last_value {
-                    #[allow(clippy::match_same_arms)]
-                    match sample.partial_cmp(last) {
-                        Some(Ordering::Greater) => self.ascending_pairs += 1,
-                        Some(Ordering::Less) => self.descending_pairs += 1,
-                        // this comes last because it's the least common case
-                        Some(Ordering::Equal) => self.ascending_pairs += 1,
-                        None => {}
+                // SAFETY: len >= 2 implies last_value, min, max are all Some
+                // (set during the len == 0 and len == 1 branches below).
+                let last = unsafe { self.last_value.as_ref().unwrap_unchecked() };
+                if sample >= *last {
+                    self.ascending_pairs += 1;
+                    // Invariant: max >= last, so sample >= last means sample
+                    // may exceed max, but can never go below min.
+                    let max = unsafe { self.max.as_mut().unwrap_unchecked() };
+                    if sample > *max {
+                        max.clone_from(&sample);
+                    }
+                } else if sample < *last {
+                    self.descending_pairs += 1;
+                    // Invariant: min <= last, so sample < last means sample
+                    // may drop below min, but can never exceed max.
+                    let min = unsafe { self.min.as_mut().unwrap_unchecked() };
+                    if sample < *min {
+                        min.clone_from(&sample);
+                    }
+                } else {
+                    // Neither >= nor < — either sample or `last` is NaN.
+                    // Fall back to checking both min and max so that a real
+                    // value following a NaN-valued `last` can still update them.
+                    let min = unsafe { self.min.as_mut().unwrap_unchecked() };
+                    if sample < *min {
+                        min.clone_from(&sample);
+                    } else {
+                        let max = unsafe { self.max.as_mut().unwrap_unchecked() };
+                        if sample > *max {
+                            max.clone_from(&sample);
+                        }
                     }
                 }
+                // SAFETY: len >= 2 implies last_value is Some.
+                *unsafe { self.last_value.as_mut().unwrap_unchecked() } = sample;
+                self.len += 1;
+                return;
             }
             0 => {
                 // first sample - clone for first_value and min, move to max
@@ -72,7 +100,8 @@ impl<T: PartialOrd + Clone> MinMax<T> {
             }
         }
 
-        // Update min/max
+        // Cold path (len == 1): update min/max independently since the
+        // `min <= last <= max` invariant is not yet established.
         if self.min.as_ref().is_none_or(|v| &sample < v) {
             self.min = Some(sample.clone());
         } else if self.max.as_ref().is_none_or(|v| &sample > v) {
@@ -93,19 +122,40 @@ impl<T: PartialOrd + Clone> MinMax<T> {
     ///
     /// For `last_value`, the existing allocation is reused when possible
     /// by clearing and cloning into it rather than replacing.
-    #[inline]
+    #[inline(always)]
     pub fn add_ref(&mut self, sample: &T) {
         match self.len {
             2.. => {
-                if let Some(ref last) = self.last_value {
-                    #[allow(clippy::match_same_arms)]
-                    match sample.partial_cmp(last) {
-                        Some(Ordering::Greater) => self.ascending_pairs += 1,
-                        Some(Ordering::Less) => self.descending_pairs += 1,
-                        Some(Ordering::Equal) => self.ascending_pairs += 1,
-                        None => {}
+                // SAFETY: len >= 2 implies last_value, min, max are all Some.
+                let last = unsafe { self.last_value.as_ref().unwrap_unchecked() };
+                if *sample >= *last {
+                    self.ascending_pairs += 1;
+                    let max = unsafe { self.max.as_mut().unwrap_unchecked() };
+                    if *sample > *max {
+                        max.clone_from(sample);
+                    }
+                } else if *sample < *last {
+                    self.descending_pairs += 1;
+                    let min = unsafe { self.min.as_mut().unwrap_unchecked() };
+                    if *sample < *min {
+                        min.clone_from(sample);
+                    }
+                } else {
+                    // NaN recovery path (see `add` for details).
+                    let min = unsafe { self.min.as_mut().unwrap_unchecked() };
+                    if *sample < *min {
+                        min.clone_from(sample);
+                    } else {
+                        let max = unsafe { self.max.as_mut().unwrap_unchecked() };
+                        if *sample > *max {
+                            max.clone_from(sample);
+                        }
                     }
                 }
+                // SAFETY: len >= 2 implies last_value is Some; reuse its allocation.
+                unsafe { self.last_value.as_mut().unwrap_unchecked() }.clone_from(sample);
+                self.len += 1;
+                return;
             }
             0 => {
                 self.first_value = Some(sample.clone());
@@ -125,7 +175,7 @@ impl<T: PartialOrd + Clone> MinMax<T> {
             }
         }
 
-        // Update min/max - only clone when actually updating
+        // Cold path (len == 1): update min/max independently.
         if self.min.as_ref().is_none_or(|v| sample < v) {
             self.min = Some(sample.clone());
         } else if self.max.as_ref().is_none_or(|v| sample > v) {
@@ -234,19 +284,34 @@ impl MinMax<Vec<u8>> {
     /// This is significantly more efficient than `add(sample.to_vec())` for large
     /// datasets where most values don't update min/max — avoiding ~99% of
     /// allocations in the common case.
-    #[inline]
+    #[inline(always)]
     pub fn add_bytes(&mut self, sample: &[u8]) {
         match self.len {
             2.. => {
-                if let Some(ref last) = self.last_value {
-                    #[allow(clippy::match_same_arms)]
-                    match sample.partial_cmp(last.as_slice()) {
-                        Some(Ordering::Greater) => self.ascending_pairs += 1,
-                        Some(Ordering::Less) => self.descending_pairs += 1,
-                        Some(Ordering::Equal) => self.ascending_pairs += 1,
-                        None => {}
+                // SAFETY: len >= 2 implies last_value, min, max are all Some.
+                // Vec<u8> comparisons are total, so there is no NaN path.
+                let last = unsafe { self.last_value.as_ref().unwrap_unchecked() };
+                if sample >= last.as_slice() {
+                    self.ascending_pairs += 1;
+                    let max = unsafe { self.max.as_mut().unwrap_unchecked() };
+                    if sample > max.as_slice() {
+                        max.clear();
+                        max.extend_from_slice(sample);
+                    }
+                } else {
+                    self.descending_pairs += 1;
+                    let min = unsafe { self.min.as_mut().unwrap_unchecked() };
+                    if sample < min.as_slice() {
+                        min.clear();
+                        min.extend_from_slice(sample);
                     }
                 }
+                // SAFETY: len >= 2 implies last_value is Some; reuse its allocation.
+                let last_mut = unsafe { self.last_value.as_mut().unwrap_unchecked() };
+                last_mut.clear();
+                last_mut.extend_from_slice(sample);
+                self.len += 1;
+                return;
             }
             0 => {
                 let owned = sample.to_vec();
@@ -267,7 +332,7 @@ impl MinMax<Vec<u8>> {
             }
         }
 
-        // Update min/max - only allocate when actually updating
+        // Cold path (len == 1): update min/max independently.
         if self.min.as_ref().is_none_or(|v| sample < v.as_slice()) {
             self.min = Some(sample.to_vec());
         } else if self.max.as_ref().is_none_or(|v| sample > v.as_slice()) {
@@ -327,10 +392,10 @@ impl<T: PartialOrd> Default for MinMax<T> {
             len: 0,
             ascending_pairs: 0,
             descending_pairs: 0,
+            last_value: None,
             min: None,
             max: None,
             first_value: None,
-            last_value: None,
         }
     }
 }

@@ -21,3 +21,10 @@ foldhash   = "0.2"
 num-traits = "0.2"
 rayon      = "1"
 serde      = { version = "1", features = ["derive"] }
+
+[dev-dependencies]
+criterion = "0.5"
+
+[[bench]]
+name    = "minmax"
+harness = false
