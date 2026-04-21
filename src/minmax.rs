@@ -81,9 +81,13 @@ impl<T: PartialOrd + Clone> MinMax<T> {
                 return;
             }
             0 => {
-                // first sample - clone for first_value and min, move to max
+                // first sample - clone for first_value/min/last_value, move to max.
+                // Setting last_value here upholds the "len >= 1 ⇒ last_value is Some"
+                // invariant relied on by the len >= 2 fast path (including after
+                // Commute::merge propagates v.last_value into self).
                 self.first_value = Some(sample.clone());
                 self.min = Some(sample.clone());
+                self.last_value = Some(sample.clone());
                 self.max = Some(sample);
                 self.len = 1;
                 return;
@@ -158,9 +162,12 @@ impl<T: PartialOrd + Clone> MinMax<T> {
                 return;
             }
             0 => {
+                // See `add`: set last_value here too so the len >= 2 fast path's
+                // invariant survives Commute::merge of a single-element state.
                 self.first_value = Some(sample.clone());
                 self.min = Some(sample.clone());
                 self.max = Some(sample.clone());
+                self.last_value = Some(sample.clone());
                 self.len = 1;
                 return;
             }
@@ -314,9 +321,12 @@ impl MinMax<Vec<u8>> {
                 return;
             }
             0 => {
+                // See `add`: set last_value here too so the len >= 2 fast path's
+                // invariant survives Commute::merge of a single-element state.
                 let owned = sample.to_vec();
                 self.first_value = Some(owned.clone());
                 self.min = Some(owned.clone());
+                self.last_value = Some(owned.clone());
                 self.max = Some(owned);
                 self.len = 1;
                 return;
@@ -607,8 +617,28 @@ mod test {
         assert_eq!(empty.min(), Some(&42));
         assert_eq!(empty.max(), Some(&42));
         assert_eq!(empty.first_value, Some(42));
-        // last_value is None for single-element MinMax (only set from 2nd element onward)
-        assert_eq!(empty.last_value, None);
+        // last_value == first_value for single-element MinMax: the invariant
+        // "len >= 1 ⇒ last_value is Some" is required by the add() hot path,
+        // which uses unwrap_unchecked when len >= 2 (reachable by merging a
+        // single-element state into a multi-element one).
+        assert_eq!(empty.last_value, Some(42));
+    }
+
+    #[test]
+    fn test_merge_single_into_multi_then_add() {
+        // Regression: merging a single-element MinMax into a multi-element
+        // one must preserve the "len >= 1 ⇒ last_value is Some" invariant,
+        // otherwise the next add() call would hit UB via unwrap_unchecked.
+        let mut multi: MinMax<u32> = vec![1, 2, 3].into_iter().collect();
+        let single: MinMax<u32> = vec![42].into_iter().collect();
+        multi.merge(single);
+        assert_eq!(multi.len(), 4);
+        assert_eq!(multi.max(), Some(&42));
+        assert!(multi.last_value.is_some());
+        // Must not UB:
+        multi.add(100);
+        assert_eq!(multi.max(), Some(&100));
+        assert_eq!(multi.len(), 5);
     }
 }
 
