@@ -37,7 +37,8 @@ impl<T: Eq + Hash> Frequencies<T> {
     }
 
     /// Add a value to the frequency table.
-    #[inline]
+    #[allow(clippy::inline_always)]
+    #[inline(always)]
     pub fn add(&mut self, v: T) {
         *self.data.entry(v).or_insert(0) += 1;
     }
@@ -232,7 +233,8 @@ impl<T: Eq + Hash> Frequencies<T> {
     }
 
     /// Add specialized method for single increment
-    #[inline]
+    #[allow(clippy::inline_always)]
+    #[inline(always)]
     pub fn increment_by(&mut self, v: T, count: u64) {
         match self.data.entry(v) {
             Entry::Vacant(entry) => {
@@ -250,7 +252,8 @@ impl Frequencies<Vec<u8>> {
     /// Uses borrowed lookup via `get_mut(&[u8])` before falling back to owned insert.
     /// This works because `Vec<u8>: Borrow<[u8]>`, so `HashMap` accepts `&[u8]` for lookup.
     /// For low-cardinality columns (the common case), this eliminates ~99% of allocations.
-    #[inline]
+    #[allow(clippy::inline_always)]
+    #[inline(always)]
     pub fn add_borrowed(&mut self, v: &[u8]) {
         if let Some(count) = self.data.get_mut(v) {
             *count += 1;
@@ -260,7 +263,8 @@ impl Frequencies<Vec<u8>> {
     }
 
     /// Increment by a count for a byte slice key, avoiding allocation when key exists.
-    #[inline]
+    #[allow(clippy::inline_always)]
+    #[inline(always)]
     pub fn increment_by_borrowed(&mut self, v: &[u8], count: u64) {
         if let Some(existing) = self.data.get_mut(v) {
             *existing += count;
