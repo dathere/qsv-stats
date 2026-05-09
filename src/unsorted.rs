@@ -224,8 +224,10 @@ where
         core::hint::cold_path();
         return None;
     }
-    // SAFETY: data.is_empty() is checked above, and median_on_sorted only
-    // returns None on empty input, so the result is guaranteed Some.
+    // SAFETY: median_on_sorted returns None only when data is empty or when
+    // to_f64() returns None. Emptiness is checked above with cold_path(),
+    // and to_f64() is treated as infallible for the supported numeric types
+    // throughout this module (see unwrap_unchecked usages below).
     let median_obs = precalc_median
         .unwrap_or_else(|| unsafe { median_on_sorted(data).unwrap_unchecked() });
 
