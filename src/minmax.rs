@@ -366,6 +366,10 @@ impl<T: PartialOrd + Clone> Commute for MinMax<T> {
         if v.min.is_none() {
             return;
         }
+        // Past this point: v.len >= 1, so by the c18efb1 invariant
+        // (len >= 1 ⇒ first_value/last_value Some), v.first_value and
+        // v.last_value are both Some. self.last_value may still be None
+        // if self was empty.
         self.len += v.len;
         if self.min.is_none() || v.min < self.min {
             self.min = v.min;
@@ -382,16 +386,14 @@ impl<T: PartialOrd + Clone> Commute for MinMax<T> {
         if self.first_value.is_none() {
             self.first_value.clone_from(&v.first_value);
         }
-        if v.len > 0 {
-            if let (Some(last), Some(v_first)) = (&self.last_value, &v.first_value) {
-                match v_first.partial_cmp(last) {
-                    Some(Ordering::Greater | Ordering::Equal) => self.ascending_pairs += 1,
-                    Some(Ordering::Less) => self.descending_pairs += 1,
-                    None => {}
-                }
+        if let (Some(last), Some(v_first)) = (&self.last_value, &v.first_value) {
+            match v_first.partial_cmp(last) {
+                Some(Ordering::Greater | Ordering::Equal) => self.ascending_pairs += 1,
+                Some(Ordering::Less) => self.descending_pairs += 1,
+                None => {}
             }
-            self.last_value = v.last_value;
         }
+        self.last_value = v.last_value;
     }
 }
 
