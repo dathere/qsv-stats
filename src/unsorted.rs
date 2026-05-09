@@ -224,7 +224,10 @@ where
         core::hint::cold_path();
         return None;
     }
-    let median_obs = precalc_median.unwrap_or_else(|| median_on_sorted(data).unwrap());
+    // SAFETY: data.is_empty() is checked above, and median_on_sorted only
+    // returns None on empty input, so the result is guaranteed Some.
+    let median_obs = precalc_median
+        .unwrap_or_else(|| unsafe { median_on_sorted(data).unwrap_unchecked() });
 
     // Use adaptive parallel processing based on data size
     let mut abs_diff_vec: Vec<f64> = if data.len() < PARALLEL_THRESHOLD {
