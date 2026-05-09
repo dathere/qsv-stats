@@ -23,8 +23,12 @@ rayon      = "1"
 serde      = { version = "1", features = ["derive"] }
 
 [dev-dependencies]
-criterion = "0.5"
+criterion = "0.8"
 
 [[bench]]
 name    = "minmax"
+harness = false
+
+[[bench]]
+name    = "online"
 harness = false
