@@ -1,5 +1,5 @@
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
-use stats::{merge_all, OnlineStats};
+use stats::{Commute, OnlineStats};
 
 const N: usize = 100_000;
 
@@ -115,11 +115,14 @@ fn bench_merge(c: &mut Criterion) {
 
     group.bench_function("two_chunks", |bench| {
         // OnlineStats: Copy — setup is two register copies per iter.
+        // Call Commute::merge directly to avoid the Vec allocation that
+        // merge_all would perform inside the timed body (non-trivial at
+        // the ~16 ns scale of a single OnlineStats merge).
         bench.iter_batched(
             || (a, b_half),
-            |(a, b_half)| {
-                let merged = merge_all(vec![a, b_half].into_iter()).unwrap_or_default();
-                black_box(merged)
+            |(mut a, b_half)| {
+                a.merge(b_half);
+                black_box(a)
             },
             criterion::BatchSize::SmallInput,
         );
