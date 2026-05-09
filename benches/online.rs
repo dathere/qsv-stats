@@ -8,10 +8,11 @@ fn gen_f64_random(n: usize) -> Vec<f64> {
     let mut s: u64 = 0x1234_5678_9ABC_DEF0;
     for _ in 0..n {
         s = s.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
-        // Map to a finite, mostly-positive f64 range so the harmonic/geometric
-        // sum fast path stays engaged for a meaningful share of samples.
+        // Strictly-positive finite range. OnlineStats has a harmonic/geometric
+        // sum fast path that is permanently disabled by the first non-positive
+        // sample, so we keep all samples > 0 to exercise it.
         let raw = (s as f64) / (u64::MAX as f64);
-        out.push(raw * 1_000_000.0 - 1_000.0);
+        out.push(raw * 1_000_000.0 + 1.0);
     }
     out
 }
@@ -24,8 +25,10 @@ fn gen_f64_random_with_nan(n: usize) -> Vec<f64> {
         if i % 100 == 0 {
             out.push(f64::NAN);
         } else {
+            // Strictly-positive (NaN is silently skipped by add_f64); keeps
+            // the harmonic/geometric fast path engaged.
             let raw = (s as f64) / (u64::MAX as f64);
-            out.push(raw * 1_000_000.0 - 1_000.0);
+            out.push(raw * 1_000_000.0 + 1.0);
         }
     }
     out
@@ -36,7 +39,7 @@ fn gen_i64_random(n: usize) -> Vec<i64> {
     let mut s: u64 = 0xCAFE_F00D_1337_BEEF;
     for _ in 0..n {
         s = s.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
-        out.push((s as i64) % 1_000_000);
+        out.push((s as i64).rem_euclid(1_000_000));
     }
     out
 }
@@ -93,25 +96,33 @@ fn bench_add_i64(c: &mut Criterion) {
 
 fn bench_merge(c: &mut Criterion) {
     let mut group = c.benchmark_group("online_merge");
-    group.throughput(Throughput::Elements(N as u64));
+    // Each iter is one merge of two pre-aggregated halves; throughput is
+    // merges/sec, not elements/sec.
+    group.throughput(Throughput::Elements(1));
 
-    let half_a = gen_f64_random(N / 2);
-    let half_b = gen_f64_random_with_nan(N / 2);
+    // Pre-build the two halves once so the bench isolates merge cost from
+    // the dominant add-loop cost.
+    let half_a_data = gen_f64_random(N / 2);
+    let half_b_data = gen_f64_random_with_nan(N / 2);
+    let mut a = OnlineStats::new();
+    for &v in &half_a_data {
+        a.add_f64(v);
+    }
+    let mut b_half = OnlineStats::new();
+    for &v in &half_b_data {
+        b_half.add_f64(v);
+    }
 
-    group.bench_function("two_chunks", |b| {
-        b.iter(|| {
-            let mut a = OnlineStats::new();
-            for &v in &half_a {
-                a.add_f64(black_box(v));
-            }
-            let mut bb = OnlineStats::new();
-            for &v in &half_b {
-                bb.add_f64(black_box(v));
-            }
-            // merge_all takes an iterator and reduces with Commute::merge.
-            let merged = merge_all(vec![a, bb].into_iter()).unwrap_or_default();
-            black_box(merged)
-        });
+    group.bench_function("two_chunks", |bench| {
+        // OnlineStats: Copy — setup is two register copies per iter.
+        bench.iter_batched(
+            || (a, b_half),
+            |(a, b_half)| {
+                let merged = merge_all(vec![a, b_half].into_iter()).unwrap_or_default();
+                black_box(merged)
+            },
+            criterion::BatchSize::SmallInput,
+        );
     });
     group.finish();
 }
