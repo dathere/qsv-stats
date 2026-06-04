@@ -17,7 +17,7 @@ cargo test --lib             # Library tests only
 cargo doc --open             # Generate and view documentation
 ```
 
-MSRV: 1.93 (Rust edition 2024)
+MSRV: 1.96 (Rust edition 2024)
 
 ## Architecture
 
