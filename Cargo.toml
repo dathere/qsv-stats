@@ -17,13 +17,14 @@ rust-version  = "1.95"
 name = "stats"
 
 [dependencies]
-foldhash   = "0.2"
+hashbrown  = "0.17"                                                 # default hasher is foldhash 0.2
 num-traits = "0.2"
 rayon      = "1"
 serde      = { version = "1", features = ["derive"] }
 
 [dev-dependencies]
 criterion = "0.8"
+foldhash  = "0.2" # only for the std-vs-hashbrown comparison in benches/freqhb.rs
 
 [[bench]]
 name    = "minmax"
@@ -35,4 +36,8 @@ harness = false
 
 [[bench]]
 name    = "sortcmp"
+harness = false
+
+[[bench]]
+name    = "freqhb"
 harness = false

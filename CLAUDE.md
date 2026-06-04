@@ -38,7 +38,7 @@ pub trait Commute: Sized {
 | **online.rs** | `OnlineStats` | Constant-space streaming mean/variance/stddev using Welford's method. Cache-optimized field layout (hot/warm/cold paths). |
 | **unsorted.rs** | `Unsorted<T>` | Collects data, lazily sorts on demand. Median, quartiles (Method 3), mode/antimodes, Gini, kurtosis, Atkinson index, MAD, percentile rank. |
 | **sorted.rs** | — | Statistics on pre-sorted sequences via `BinaryHeap`. |
-| **frequency.rs** | `Frequencies<T>` | Exact frequency counting using `foldhash::HashMap`. Cardinality, most/least frequent. |
+| **frequency.rs** | `Frequencies<T>` | Exact frequency counting using `hashbrown::HashMap` (foldhash hasher; `entry_ref` for borrowed byte-slice inserts). Cardinality, most/least frequent. |
 | **minmax.rs** | `MinMax<T>` | Min/max tracking with sort order detection (`sortiness()` returns -1.0 to 1.0). |
 
 ### Performance Patterns
@@ -60,4 +60,4 @@ Tests are embedded in each module via `#[cfg(test)]` blocks (140+ tests total). 
 
 ## Dependencies
 
-Only 4 production dependencies: `foldhash`, `num-traits`, `rayon`, `serde`.
+Only 4 production dependencies: `hashbrown` (default foldhash 0.2 hasher), `num-traits`, `rayon`, `serde`.
