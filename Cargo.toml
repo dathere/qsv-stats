@@ -32,3 +32,7 @@ harness = false
 [[bench]]
 name    = "online"
 harness = false
+
+[[bench]]
+name    = "sortcmp"
+harness = false
