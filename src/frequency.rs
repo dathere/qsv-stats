@@ -1,7 +1,7 @@
-use std::collections::hash_map::{Entry, Keys};
 use std::hash::Hash;
 
-use foldhash::{HashMap, HashMapExt};
+use hashbrown::HashMap;
+use hashbrown::hash_map::{Entry, Keys};
 
 use rayon::prelude::*;
 
@@ -249,28 +249,22 @@ impl<T: Eq + Hash> Frequencies<T> {
 
 impl Frequencies<Vec<u8>> {
     /// Increment count for a byte slice key, avoiding allocation when key exists.
-    /// Uses borrowed lookup via `get_mut(&[u8])` before falling back to owned insert.
-    /// This works because `Vec<u8>: Borrow<[u8]>`, so `HashMap` accepts `&[u8]` for lookup.
-    /// For low-cardinality columns (the common case), this eliminates ~99% of allocations.
+    /// Uses hashbrown's `entry_ref(&[u8])`, which probes once with the borrowed
+    /// key and only allocates (`[u8]::to_owned()` -> `Vec<u8>`) on the vacant
+    /// branch. For low-cardinality columns (the common case), this eliminates
+    /// ~99% of allocations; for new keys it is a single hash+probe (std's
+    /// HashMap has no stable raw-entry API, so the old path hashed twice).
     #[allow(clippy::inline_always)]
     #[inline(always)]
     pub fn add_borrowed(&mut self, v: &[u8]) {
-        if let Some(count) = self.data.get_mut(v) {
-            *count += 1;
-        } else {
-            self.data.insert(v.to_vec(), 1);
-        }
+        *self.data.entry_ref(v).or_insert(0) += 1;
     }
 
     /// Increment by a count for a byte slice key, avoiding allocation when key exists.
     #[allow(clippy::inline_always)]
     #[inline(always)]
     pub fn increment_by_borrowed(&mut self, v: &[u8], count: u64) {
-        if let Some(existing) = self.data.get_mut(v) {
-            *existing += count;
-        } else {
-            self.data.insert(v.to_vec(), count);
-        }
+        *self.data.entry_ref(v).or_insert(0) += count;
     }
 }
 
