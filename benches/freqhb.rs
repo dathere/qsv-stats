@@ -35,7 +35,9 @@ fn gen_low_card(n: usize, card: usize) -> Vec<Vec<u8>> {
     let pool: Vec<Vec<u8>> = (0..card)
         .map(|i| format!("category_{i:04}").into_bytes())
         .collect();
-    (0..n).map(|_| pool[(next() as usize) % card].clone()).collect()
+    (0..n)
+        .map(|_| pool[(next() as usize) % card].clone())
+        .collect()
 }
 
 fn gen_high_card_short(n: usize) -> Vec<Vec<u8>> {
@@ -131,23 +133,31 @@ fn merge_hb(mut partials: Vec<hashbrown::HashMap<Vec<u8>, u64>>) -> u64 {
     acc.len() as u64
 }
 
+// Datasets are generated lazily, one shape per loop iteration, so only a single
+// 1M-row Vec<Vec<u8>> is resident at a time (avoids holding all shapes' peak RSS
+// at once).
+#[allow(clippy::type_complexity)]
+fn shapes() -> Vec<(&'static str, Box<dyn Fn(usize) -> Vec<Vec<u8>>>)> {
+    vec![
+        ("low_card_50", Box::new(|n| gen_low_card(n, 50))),
+        ("low_card_5000", Box::new(|n| gen_low_card(n, 5000))),
+        ("high_card_short", Box::new(gen_high_card_short)),
+        ("high_card_long", Box::new(gen_high_card_long)),
+    ]
+}
+
 fn bench_build(c: &mut Criterion) {
     let n = 1_000_000usize;
-    let shapes: &[(&str, Vec<Vec<u8>>)] = &[
-        ("low_card_50", gen_low_card(n, 50)),
-        ("low_card_5000", gen_low_card(n, 5000)),
-        ("high_card_short", gen_high_card_short(n)),
-        ("high_card_long", gen_high_card_long(n)),
-    ];
     let mut group = c.benchmark_group("build");
     group.throughput(Throughput::Elements(n as u64));
     group.sample_size(20);
-    for (label, data) in shapes {
-        assert_eq!(build_std(data), build_hb(data));
-        group.bench_with_input(BenchmarkId::new("std", label), data, |b, d| {
+    for (label, make) in shapes() {
+        let data = make(n);
+        assert_eq!(build_std(&data), build_hb(&data));
+        group.bench_with_input(BenchmarkId::new("std", label), &data, |b, d| {
             b.iter(|| black_box(build_std(d)));
         });
-        group.bench_with_input(BenchmarkId::new("hashbrown", label), data, |b, d| {
+        group.bench_with_input(BenchmarkId::new("hashbrown", label), &data, |b, d| {
             b.iter(|| black_box(build_hb(d)));
         });
     }
@@ -157,21 +167,31 @@ fn bench_build(c: &mut Criterion) {
 fn bench_merge(c: &mut Criterion) {
     let n = 1_000_000usize;
     let parts = 16;
-    let shapes: &[(&str, Vec<Vec<u8>>)] = &[
-        ("low_card_5000", gen_low_card(n, 5000)),
-        ("high_card_short", gen_high_card_short(n)),
-    ];
     let mut group = c.benchmark_group("merge");
     group.throughput(Throughput::Elements(n as u64));
     group.sample_size(20);
-    for (label, data) in shapes {
-        let std_parts = make_std_partials(data, parts);
-        let hb_parts = make_hb_partials(data, parts);
+    // Merge only exercises the two cardinality extremes.
+    for (label, make) in shapes()
+        .into_iter()
+        .filter(|(l, _)| *l == "low_card_5000" || *l == "high_card_short")
+    {
+        let data = make(n);
+        let std_parts = make_std_partials(&data, parts);
+        let hb_parts = make_hb_partials(&data, parts);
+        drop(data); // partials own their keys; free the source dataset before benching
         group.bench_with_input(BenchmarkId::new("std", label), &std_parts, |b, p| {
-            b.iter_batched(|| p.clone(), |p| black_box(merge_std(p)), criterion::BatchSize::LargeInput);
+            b.iter_batched(
+                || p.clone(),
+                |p| black_box(merge_std(p)),
+                criterion::BatchSize::LargeInput,
+            );
         });
         group.bench_with_input(BenchmarkId::new("hashbrown", label), &hb_parts, |b, p| {
-            b.iter_batched(|| p.clone(), |p| black_box(merge_hb(p)), criterion::BatchSize::LargeInput);
+            b.iter_batched(
+                || p.clone(),
+                |p| black_box(merge_hb(p)),
+                criterion::BatchSize::LargeInput,
+            );
         });
     }
     group.finish();
