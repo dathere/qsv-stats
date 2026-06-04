@@ -330,10 +330,27 @@ pub struct UniqueValues<'a, K> {
 
 impl<'a, K> Iterator for UniqueValues<'a, K> {
     type Item = &'a K;
+    #[inline]
     fn next(&mut self) -> Option<Self::Item> {
         self.data_keys.next()
     }
+
+    // Forward the exact size hint from the underlying `Keys` iterator so that
+    // `collect`/`extend` can preallocate exactly instead of reallocating.
+    #[inline]
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        self.data_keys.size_hint()
+    }
 }
+
+impl<K> ExactSizeIterator for UniqueValues<'_, K> {
+    #[inline]
+    fn len(&self) -> usize {
+        self.data_keys.len()
+    }
+}
+
+impl<K> std::iter::FusedIterator for UniqueValues<'_, K> {}
 
 #[cfg(test)]
 mod test {
