@@ -1,4 +1,4 @@
-use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
+use criterion::{BenchmarkId, Criterion, Throughput, black_box, criterion_group, criterion_main};
 use stats::{Commute, OnlineStats};
 
 const N: usize = 100_000;
@@ -7,7 +7,9 @@ fn gen_f64_random(n: usize) -> Vec<f64> {
     let mut out = Vec::with_capacity(n);
     let mut s: u64 = 0x1234_5678_9ABC_DEF0;
     for _ in 0..n {
-        s = s.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+        s = s
+            .wrapping_mul(6364136223846793005)
+            .wrapping_add(1442695040888963407);
         // Strictly-positive finite range. OnlineStats has a harmonic/geometric
         // sum fast path that is permanently disabled by the first non-positive
         // sample, so we keep all samples > 0 to exercise it.
@@ -21,7 +23,9 @@ fn gen_f64_random_with_nan(n: usize) -> Vec<f64> {
     let mut out = Vec::with_capacity(n);
     let mut s: u64 = 0xFEED_FACE_DEAD_BEEF;
     for i in 0..n {
-        s = s.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+        s = s
+            .wrapping_mul(6364136223846793005)
+            .wrapping_add(1442695040888963407);
         if i % 100 == 0 {
             out.push(f64::NAN);
         } else {
@@ -38,7 +42,9 @@ fn gen_i64_random(n: usize) -> Vec<i64> {
     let mut out = Vec::with_capacity(n);
     let mut s: u64 = 0xCAFE_F00D_1337_BEEF;
     for _ in 0..n {
-        s = s.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+        s = s
+            .wrapping_mul(6364136223846793005)
+            .wrapping_add(1442695040888963407);
         out.push((s as i64).rem_euclid(1_000_000));
     }
     out

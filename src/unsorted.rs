@@ -228,8 +228,8 @@ where
     // to_f64() returns None. Emptiness is checked above with cold_path(),
     // and to_f64() is treated as infallible for the supported numeric types
     // throughout this module (see unwrap_unchecked usages below).
-    let median_obs = precalc_median
-        .unwrap_or_else(|| unsafe { median_on_sorted(data).unwrap_unchecked() });
+    let median_obs =
+        precalc_median.unwrap_or_else(|| unsafe { median_on_sorted(data).unwrap_unchecked() });
 
     // Use adaptive parallel processing based on data size
     let mut abs_diff_vec: Vec<f64> = if data.len() < PARALLEL_THRESHOLD {
@@ -1355,7 +1355,7 @@ impl<T: PartialOrd + PartialEq + Clone + Send + Sync> Unsorted<T> {
                         (Some(l), Some(r)) => {
                             let adj = u64::from(l == r);
                             (cl + cr - adj, fl, lr)
-                        },
+                        }
                     },
                 )
                 .0

@@ -1,4 +1,4 @@
-use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
+use criterion::{BenchmarkId, Criterion, Throughput, black_box, criterion_group, criterion_main};
 use stats::MinMax;
 
 const N: usize = 100_000;
@@ -18,7 +18,9 @@ fn gen_bytes_random(n: usize) -> Vec<Vec<u8>> {
     let mut out = Vec::with_capacity(n);
     let mut s: u64 = 0x9E37_79B9_7F4A_7C15;
     for _ in 0..n {
-        s = s.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+        s = s
+            .wrapping_mul(6364136223846793005)
+            .wrapping_add(1442695040888963407);
         out.push(format!("{:016x}", s).into_bytes());
     }
     out
@@ -29,9 +31,13 @@ fn gen_bytes_mostly_sorted(n: usize) -> Vec<Vec<u8>> {
     let mut s: u64 = 0xDEAD_BEEF_CAFE_BABE;
     let swaps = n / 100;
     for _ in 0..swaps {
-        s = s.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+        s = s
+            .wrapping_mul(6364136223846793005)
+            .wrapping_add(1442695040888963407);
         let i = (s as usize) % n;
-        s = s.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+        s = s
+            .wrapping_mul(6364136223846793005)
+            .wrapping_add(1442695040888963407);
         let j = (s as usize) % n;
         v.swap(i, j);
     }
@@ -42,7 +48,9 @@ fn gen_f64_random_with_nan(n: usize) -> Vec<f64> {
     let mut out = Vec::with_capacity(n);
     let mut s: u64 = 0x1234_5678_9ABC_DEF0;
     for i in 0..n {
-        s = s.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+        s = s
+            .wrapping_mul(6364136223846793005)
+            .wrapping_add(1442695040888963407);
         if i % 100 == 0 {
             out.push(f64::NAN);
         } else {
@@ -56,7 +64,9 @@ fn gen_i64_random(n: usize) -> Vec<i64> {
     let mut out = Vec::with_capacity(n);
     let mut s: u64 = 0xCAFE_F00D_1337_BEEF;
     for _ in 0..n {
-        s = s.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+        s = s
+            .wrapping_mul(6364136223846793005)
+            .wrapping_add(1442695040888963407);
         out.push(s as i64);
     }
     out
@@ -66,7 +76,9 @@ fn gen_string_random(n: usize) -> Vec<String> {
     let mut out = Vec::with_capacity(n);
     let mut s: u64 = 0xFEED_FACE_DEAD_BEEF;
     for _ in 0..n {
-        s = s.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+        s = s
+            .wrapping_mul(6364136223846793005)
+            .wrapping_add(1442695040888963407);
         out.push(format!("{:016x}", s));
     }
     out

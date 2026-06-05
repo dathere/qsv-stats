@@ -156,14 +156,20 @@ impl<T: Eq + Hash> Frequencies<T> {
     {
         use std::collections::BinaryHeap;
 
-        // Min-heap (via Reverse) of the n largest elements seen so far.
-        // peek() returns the smallest entry currently in the top-N — replace it
-        // only when a strictly larger count comes in. Avoids a push+pop per
+        // Ties are broken by value *ascending* so the result matches
+        // `most_frequent()` / `par_frequent(false)` (count desc, value asc).
+        // We achieve this by ranking each entry on `(count, Reverse(item))`:
+        // a larger count wins, and on a count tie the lexicographically smaller
+        // value wins (its `Reverse(item)` is larger).
+        //
+        // Min-heap (via the outer Reverse) of the n best entries seen so far.
+        // peek() returns the worst entry currently in the top-N — replace it
+        // only when a strictly better candidate comes in. Avoids a push+pop per
         // rejected element on high-cardinality inputs with small n.
         let mut heap = BinaryHeap::with_capacity(n);
 
         for (item, count) in &self.data {
-            let candidate = (*count, item);
+            let candidate = (*count, std::cmp::Reverse(item));
             if heap.len() < n {
                 heap.push(std::cmp::Reverse(candidate));
             } else if let Some(top) = heap.peek()
@@ -174,10 +180,10 @@ impl<T: Eq + Hash> Frequencies<T> {
             }
         }
 
-        // Convert to sorted vector
+        // Convert to sorted vector (count desc, value asc)
         heap.into_sorted_vec()
             .into_iter()
-            .map(|std::cmp::Reverse((count, item))| (item, count))
+            .map(|std::cmp::Reverse((count, std::cmp::Reverse(item)))| (item, count))
             .collect()
     }
 
@@ -407,6 +413,63 @@ mod test {
         assert_eq!(bottom_2.len(), 2);
         assert_eq!(bottom_2[0], (&3, 1)); // Least frequent
         assert_eq!(bottom_2[1], (&2, 2)); // Second least frequent
+    }
+
+    // top_n/bottom_n must select the SAME set and order as
+    // par_frequent(..) truncated to n, including the tie-break at the
+    // n/n+1 boundary (count primary, value ascending on ties). This is the
+    // invariant qsv's `frequency --limit N` fast path relies on.
+    #[test]
+    fn top_n_matches_par_frequent_all_ties() {
+        // All counts equal: every comparison is a pure value tie-break.
+        let mut freq = Frequencies::new();
+        freq.extend(vec![1usize, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+        for n in 0..=10usize {
+            let (full_desc, _) = freq.par_frequent(false);
+            let expected_desc: Vec<(&usize, u64)> = full_desc.into_iter().take(n).collect();
+            assert_eq!(freq.top_n(n), expected_desc, "top_n({n}) all-ties mismatch");
+
+            let (full_asc, _) = freq.par_frequent(true);
+            let expected_asc: Vec<(&usize, u64)> = full_asc.into_iter().take(n).collect();
+            assert_eq!(
+                freq.bottom_n(n),
+                expected_asc,
+                "bottom_n({n}) all-ties mismatch"
+            );
+        }
+    }
+
+    #[test]
+    fn top_n_matches_par_frequent_boundary_ties() {
+        // Counts deliberately tie across the cutoff: values 10..19 all count 2,
+        // values 20..24 count 5, values 30..34 count 1.
+        let mut freq = Frequencies::new();
+        for v in 10..20usize {
+            freq.extend(vec![v, v]); // count 2
+        }
+        for v in 20..25usize {
+            freq.extend(vec![v; 5]); // count 5
+        }
+        for v in 30..35usize {
+            freq.extend(vec![v]); // count 1
+        }
+        for n in 0..=freq.len() + 2 {
+            let (full_desc, _) = freq.par_frequent(false);
+            let expected_desc: Vec<(&usize, u64)> = full_desc.into_iter().take(n).collect();
+            assert_eq!(
+                freq.top_n(n),
+                expected_desc,
+                "top_n({n}) boundary-tie mismatch"
+            );
+
+            let (full_asc, _) = freq.par_frequent(true);
+            let expected_asc: Vec<(&usize, u64)> = full_asc.into_iter().take(n).collect();
+            assert_eq!(
+                freq.bottom_n(n),
+                expected_asc,
+                "bottom_n({n}) boundary-tie mismatch"
+            );
+        }
     }
 
     #[test]
