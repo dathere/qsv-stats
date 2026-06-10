@@ -1139,6 +1139,46 @@ where
     runs.push((current_value, current_count));
     lowest_count = lowest_count.min(current_count);
 
+    modes_antimodes_from_runs(runs, highest_count, lowest_count)
+}
+
+/// Computes modes and antimodes from a sequence of value runs.
+///
+/// This is the shared core used by both `modes_and_antimodes_on_sorted_slice`
+/// (which derives runs from a fully sorted slice of samples) and
+/// `Frequencies::modes_antimodes` (which derives runs from a frequency map's
+/// key-sorted `(value, count)` pairs). Both representations describe the same
+/// ascending-ordered (value, run-count) sequence, so routing them through one
+/// implementation guarantees identical results, including the special cases
+/// below.
+///
+/// # Requirements
+///
+/// * `runs` must be ordered ascending by value, with one entry per unique value
+/// * `highest_count` / `lowest_count` must be the max/min of the run counts
+///
+/// # Special cases (kept bit-for-bit compatible)
+///
+/// * Empty runs: empty modes and antimodes with zero counts
+/// * Single unique value: that value is the mode, antimodes are empty
+/// * All values unique (`highest_count == 1`): modes are empty `(0, 0)`,
+///   up to 10 values are returned as antimodes with occurrence count 1
+#[allow(clippy::type_complexity)]
+#[inline]
+pub(crate) fn modes_antimodes_from_runs<T>(
+    mut runs: Vec<(&T, u32)>,
+    highest_count: u32,
+    lowest_count: u32,
+) -> ((Vec<T>, usize, u32), (Vec<T>, usize, u32))
+where
+    T: Clone,
+{
+    // Early return for empty input
+    if runs.is_empty() {
+        core::hint::cold_path();
+        return ((Vec::new(), 0, 0), (Vec::new(), 0, 0));
+    }
+
     // Early return if only one unique value
     if runs.len() == 1 {
         let (val, count) = runs.pop().unwrap();

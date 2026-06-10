@@ -1,17 +1,31 @@
 use std::hash::Hash;
 
 use hashbrown::HashMap;
-use hashbrown::hash_map::{Entry, Keys};
+use hashbrown::hash_map::{Entry, EntryRef, Keys};
 
 use rayon::prelude::*;
+use serde::{Deserialize, Serialize};
 
 use crate::Commute;
+use crate::unsorted::modes_antimodes_from_runs;
 
 const PARALLEL_THRESHOLD: usize = 10_000;
 /// A commutative data structure for exact frequency counts.
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(bound(
+    serialize = "T: Serialize + Eq + Hash",
+    deserialize = "T: Deserialize<'de> + Eq + Hash"
+))]
 pub struct Frequencies<T> {
     data: HashMap<T, u64>,
+}
+
+// Manual impl: the derive would bound on `T: PartialEq` only, but
+// `HashMap: PartialEq` requires `T: Eq + Hash`.
+impl<T: Eq + Hash> PartialEq for Frequencies<T> {
+    fn eq(&self, other: &Self) -> bool {
+        self.data == other.data
+    }
 }
 
 #[cfg(debug_assertions)]
@@ -253,6 +267,49 @@ impl<T: Eq + Hash> Frequencies<T> {
     }
 }
 
+impl<T: Eq + Hash + Ord + Clone + Send + Sync> Frequencies<T> {
+    /// Returns the modes and antimodes of the data.
+    ///
+    /// Produces results identical to [`crate::Unsorted::modes_antimodes`] for the
+    /// same multiset of samples: the frequency map's `(value, count)` pairs,
+    /// sorted ascending by value, describe the exact same run sequence that
+    /// `Unsorted` derives from its fully sorted sample buffer. Both paths are
+    /// routed through the same `modes_antimodes_from_runs` core.
+    ///
+    /// Unlike `Unsorted`, this only sorts the *unique* values (cardinality),
+    /// not every sample - O(c log c) instead of O(n log n) - and the frequency
+    /// map itself stores one entry per unique value instead of one per sample.
+    ///
+    /// Returns `((modes, modes_count, mode_occurrences),
+    /// (antimodes, antimodes_count, antimode_occurrences))`.
+    /// Only the first 10 antimodes are returned.
+    #[allow(clippy::type_complexity)]
+    #[must_use]
+    pub fn modes_antimodes(&self) -> ((Vec<T>, usize, u32), (Vec<T>, usize, u32)) {
+        let mut runs: Vec<(&T, u32)> = self
+            .data
+            .iter()
+            .map(|(k, &c)| (k, u32::try_from(c).unwrap_or(u32::MAX)))
+            .collect();
+
+        // sort ascending by value - same ordering Unsorted uses for its samples
+        if runs.len() > PARALLEL_THRESHOLD {
+            runs.par_sort_unstable_by(|a, b| a.0.cmp(b.0));
+        } else {
+            runs.sort_unstable_by(|a, b| a.0.cmp(b.0));
+        }
+
+        let mut highest_count = 1_u32;
+        let mut lowest_count = u32::MAX;
+        for &(_, c) in &runs {
+            highest_count = highest_count.max(c);
+            lowest_count = lowest_count.min(c);
+        }
+
+        modes_antimodes_from_runs(runs, highest_count, lowest_count)
+    }
+}
+
 impl Frequencies<Vec<u8>> {
     /// Increment count for a byte slice key, avoiding allocation when key exists.
     /// Uses hashbrown's `entry_ref(&[u8])`, which probes once with the borrowed
@@ -271,6 +328,35 @@ impl Frequencies<Vec<u8>> {
     #[inline(always)]
     pub fn increment_by_borrowed(&mut self, v: &[u8], count: u64) {
         *self.data.entry_ref(v).or_insert(0) += count;
+    }
+
+    /// Increment the count for `v`, enforcing a cardinality cap.
+    ///
+    /// Existing keys always increment (the map doesn't grow). A NEW key that
+    /// would grow the map past `cap` unique entries is rejected: the map is
+    /// left unchanged and `false` is returned, so the caller can drop the
+    /// tracker. `cap == 0` means unbounded.
+    ///
+    /// Like [`Self::add_borrowed`], this single-probes via `entry_ref` and
+    /// only allocates an owned key on the (admitted) vacant branch.
+    #[allow(clippy::inline_always)]
+    #[inline(always)]
+    pub fn add_borrowed_capped(&mut self, v: &[u8], cap: u64) -> bool {
+        let len = self.data.len() as u64;
+        match self.data.entry_ref(v) {
+            EntryRef::Occupied(mut e) => {
+                *e.get_mut() += 1;
+                true
+            }
+            EntryRef::Vacant(e) => {
+                if cap > 0 && len >= cap {
+                    false
+                } else {
+                    e.insert(1);
+                    true
+                }
+            }
+        }
     }
 }
 
@@ -538,5 +624,71 @@ mod test {
         // All methods should see the same accumulated count
         assert_eq!(freq.count(&b"key".to_vec()), 5);
         assert_eq!(freq.cardinality(), 1);
+    }
+
+    /// Property test: `Frequencies::modes_antimodes` must produce results
+    /// identical to `Unsorted::modes_antimodes` for the same multiset of
+    /// samples, and the cardinalities must match. This is the behavior
+    /// preservation proof for replacing the `Unsorted<Vec<u8>>` modes tracker
+    /// with a `Frequencies<Vec<u8>>` counted-runs map.
+    #[test]
+    fn modes_antimodes_matches_unsorted() {
+        // simple deterministic LCG so the test needs no rand dependency
+        let mut seed = 0xDEAD_BEEF_u64;
+        let mut next = move |bound: u64| {
+            seed = seed.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(1);
+            (seed >> 33) % bound
+        };
+
+        for case in 0..200 {
+            // vary size and cardinality to hit the special cases:
+            // empty, single unique, all unique, ties, skewed
+            let n_samples = next(50) as usize;
+            let key_space = 1 + next(30);
+
+            let mut unsorted = crate::Unsorted::<Vec<u8>>::default();
+            let mut freqs = Frequencies::<Vec<u8>>::new();
+            for _ in 0..n_samples {
+                let key = format!("k{:02}", next(key_space)).into_bytes();
+                unsorted.add_bytes(&key);
+                freqs.add_borrowed(&key);
+            }
+
+            assert_eq!(
+                unsorted.cardinality(false, 1),
+                freqs.cardinality(),
+                "cardinality mismatch in case {case}"
+            );
+            assert_eq!(
+                unsorted.modes_antimodes(),
+                freqs.modes_antimodes(),
+                "modes/antimodes mismatch in case {case} (n={n_samples}, k={key_space})"
+            );
+        }
+
+        // explicit edge cases
+        // empty
+        let mut u = crate::Unsorted::<Vec<u8>>::default();
+        let f = Frequencies::<Vec<u8>>::new();
+        assert_eq!(u.modes_antimodes(), f.modes_antimodes());
+
+        // single unique value, multiple occurrences
+        let mut u = crate::Unsorted::<Vec<u8>>::default();
+        let mut f = Frequencies::<Vec<u8>>::new();
+        for _ in 0..5 {
+            u.add_bytes(b"only");
+            f.add_borrowed(b"only");
+        }
+        assert_eq!(u.modes_antimodes(), f.modes_antimodes());
+
+        // all values unique (highest_count == 1), more than 10 antimodes
+        let mut u = crate::Unsorted::<Vec<u8>>::default();
+        let mut f = Frequencies::<Vec<u8>>::new();
+        for i in 0..15 {
+            let key = format!("u{i:02}").into_bytes();
+            u.add_bytes(&key);
+            f.add_borrowed(&key);
+        }
+        assert_eq!(u.modes_antimodes(), f.modes_antimodes());
     }
 }
