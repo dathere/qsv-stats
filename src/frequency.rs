@@ -282,6 +282,10 @@ impl<T: Eq + Hash + Ord + Clone + Send + Sync> Frequencies<T> {
     /// (`highest == lowest`: every value is both a mode and an antimode) falls
     /// back to a single full key sort, which beats collecting the keys twice.
     ///
+    /// Counts are compared as `u64`, so mode/antimode *selection* is exact even
+    /// when occurrence counts exceed `u32::MAX`; only the returned occurrence
+    /// counts saturate at `u32::MAX`.
+    ///
     /// Returns `((modes, modes_count, mode_occurrences),
     /// (antimodes, antimodes_count, antimode_occurrences))`.
     /// Only the first 10 antimodes are returned.
@@ -293,18 +297,21 @@ impl<T: Eq + Hash + Ord + Clone + Send + Sync> Frequencies<T> {
             return ((Vec::new(), 0, 0), (Vec::new(), 0, 0));
         }
 
-        let mut highest_count = 1_u32;
-        let mut lowest_count = u32::MAX;
+        // full-width comparison: distinct counts above u32::MAX must not
+        // collapse into ties; saturation happens only at the return boundary
+        let mut highest_count = 1_u64;
+        let mut lowest_count = u64::MAX;
         for &c in self.data.values() {
-            let c = u32::try_from(c).unwrap_or(u32::MAX);
             highest_count = highest_count.max(c);
             lowest_count = lowest_count.min(c);
         }
+        let highest_count_u32 = u32::try_from(highest_count).unwrap_or(u32::MAX);
+        let lowest_count_u32 = u32::try_from(lowest_count).unwrap_or(u32::MAX);
 
         // single unique value: it is the mode, antimodes are empty
         if self.data.len() == 1 {
             let k = self.data.keys().next().unwrap();
-            return ((vec![k.clone()], 1, lowest_count), (Vec::new(), 0, 0));
+            return ((vec![k.clone()], 1, lowest_count_u32), (Vec::new(), 0, 0));
         }
 
         // all values unique: modes are empty, the 10 smallest values are the
@@ -334,8 +341,8 @@ impl<T: Eq + Hash + Ord + Clone + Send + Sync> Frequencies<T> {
             let antimodes: Vec<T> = keys.iter().take(10).map(|k| (*k).clone()).collect();
             let modes: Vec<T> = keys.into_iter().cloned().collect();
             return (
-                (modes, total, highest_count),
-                (antimodes, total, lowest_count),
+                (modes, total, highest_count_u32),
+                (antimodes, total, lowest_count_u32),
             );
         }
 
@@ -344,7 +351,6 @@ impl<T: Eq + Hash + Ord + Clone + Send + Sync> Frequencies<T> {
         let mut modes: Vec<&T> = Vec::new();
         let mut antimodes: Vec<&T> = Vec::new();
         for (k, &c) in &self.data {
-            let c = u32::try_from(c).unwrap_or(u32::MAX);
             if c == highest_count {
                 modes.push(k);
             } else if c == lowest_count {
@@ -368,12 +374,12 @@ impl<T: Eq + Hash + Ord + Clone + Send + Sync> Frequencies<T> {
             (
                 modes.iter().map(|k| (*k).clone()).collect(),
                 modes.len(),
-                highest_count,
+                highest_count_u32,
             ),
             (
                 antimodes.into_iter().cloned().collect(),
                 antimodes_total,
-                lowest_count,
+                lowest_count_u32,
             ),
         )
     }
@@ -759,5 +765,40 @@ mod test {
             f.add_borrowed(&key);
         }
         assert_eq!(u.modes_antimodes(), f.modes_antimodes());
+    }
+
+    /// Regression test: distinct counts above u32::MAX must not collapse into
+    /// ties during mode/antimode selection. Selection compares full u64
+    /// counts; only the returned occurrence counts saturate at u32::MAX.
+    #[test]
+    fn modes_antimodes_counts_above_u32_max() {
+        let big = u64::from(u32::MAX) + 10;
+
+        let mut f = Frequencies::new();
+        f.increment_by(b"big".to_vec(), big);
+        f.increment_by(b"bigger".to_vec(), big + 5);
+        f.increment_by(b"small".to_vec(), 3);
+
+        let ((modes, modes_count, mode_occ), (antimodes, anti_count, anti_occ)) =
+            f.modes_antimodes();
+        // "bigger" alone is the mode - under u32 saturation big and bigger
+        // would have tied and both been returned
+        assert_eq!(modes, vec![b"bigger".to_vec()]);
+        assert_eq!(modes_count, 1);
+        assert_eq!(mode_occ, u32::MAX); // reported occurrence saturates
+        assert_eq!(antimodes, vec![b"small".to_vec()]);
+        assert_eq!(anti_count, 1);
+        assert_eq!(anti_occ, 3);
+
+        // both counts above u32::MAX: lowest also saturates in the report,
+        // but selection still distinguishes them
+        let mut f2 = Frequencies::new();
+        f2.increment_by(b"a".to_vec(), big);
+        f2.increment_by(b"b".to_vec(), big + 1);
+        let ((modes2, _, mode_occ2), (antimodes2, _, anti_occ2)) = f2.modes_antimodes();
+        assert_eq!(modes2, vec![b"b".to_vec()]);
+        assert_eq!(antimodes2, vec![b"a".to_vec()]);
+        assert_eq!(mode_occ2, u32::MAX);
+        assert_eq!(anti_occ2, u32::MAX);
     }
 }
