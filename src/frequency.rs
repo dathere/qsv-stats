@@ -7,7 +7,6 @@ use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 
 use crate::Commute;
-use crate::unsorted::modes_antimodes_from_runs;
 
 const PARALLEL_THRESHOLD: usize = 10_000;
 /// A commutative data structure for exact frequency counts.
@@ -271,14 +270,17 @@ impl<T: Eq + Hash + Ord + Clone + Send + Sync> Frequencies<T> {
     /// Returns the modes and antimodes of the data.
     ///
     /// Produces results identical to [`crate::Unsorted::modes_antimodes`] for the
-    /// same multiset of samples: the frequency map's `(value, count)` pairs,
-    /// sorted ascending by value, describe the exact same run sequence that
-    /// `Unsorted` derives from its fully sorted sample buffer. Both paths are
-    /// routed through the same `modes_antimodes_from_runs` core.
+    /// same multiset of samples (verified by the `modes_antimodes_matches_unsorted`
+    /// property test and the equivalence assertion in `benches/modesfreq.rs`).
     ///
-    /// Unlike `Unsorted`, this only sorts the *unique* values (cardinality),
-    /// not every sample - O(c log c) instead of O(n log n) - and the frequency
-    /// map itself stores one entry per unique value instead of one per sample.
+    /// Rather than sorting all unique values, this only sorts what the output
+    /// actually contains: one O(c) pass over the counts finds the
+    /// highest/lowest occurrence counts, a second pass collects only the
+    /// matching keys, then the (typically tiny) mode set is sorted and the 10
+    /// smallest antimodes are picked via `select_nth_unstable` - O(c) average
+    /// instead of O(c log c), where c is the cardinality. Uniform-count data
+    /// (`highest == lowest`: every value is both a mode and an antimode) falls
+    /// back to a single full key sort, which beats collecting the keys twice.
     ///
     /// Returns `((modes, modes_count, mode_occurrences),
     /// (antimodes, antimodes_count, antimode_occurrences))`.
@@ -286,27 +288,94 @@ impl<T: Eq + Hash + Ord + Clone + Send + Sync> Frequencies<T> {
     #[allow(clippy::type_complexity)]
     #[must_use]
     pub fn modes_antimodes(&self) -> ((Vec<T>, usize, u32), (Vec<T>, usize, u32)) {
-        let mut runs: Vec<(&T, u32)> = self
-            .data
-            .iter()
-            .map(|(k, &c)| (k, u32::try_from(c).unwrap_or(u32::MAX)))
-            .collect();
-
-        // sort ascending by value - same ordering Unsorted uses for its samples
-        if runs.len() > PARALLEL_THRESHOLD {
-            runs.par_sort_unstable_by(|a, b| a.0.cmp(b.0));
-        } else {
-            runs.sort_unstable_by(|a, b| a.0.cmp(b.0));
+        if self.data.is_empty() {
+            core::hint::cold_path();
+            return ((Vec::new(), 0, 0), (Vec::new(), 0, 0));
         }
 
         let mut highest_count = 1_u32;
         let mut lowest_count = u32::MAX;
-        for &(_, c) in &runs {
+        for &c in self.data.values() {
+            let c = u32::try_from(c).unwrap_or(u32::MAX);
             highest_count = highest_count.max(c);
             lowest_count = lowest_count.min(c);
         }
 
-        modes_antimodes_from_runs(runs, highest_count, lowest_count)
+        // single unique value: it is the mode, antimodes are empty
+        if self.data.len() == 1 {
+            let k = self.data.keys().next().unwrap();
+            return ((vec![k.clone()], 1, lowest_count), (Vec::new(), 0, 0));
+        }
+
+        // all values unique: modes are empty, the 10 smallest values are the
+        // antimodes - selection instead of sorting all c keys
+        if highest_count == 1 {
+            let total = self.data.len();
+            let mut keys: Vec<&T> = self.data.keys().collect();
+            if keys.len() > 10 {
+                keys.select_nth_unstable(9);
+                keys.truncate(10);
+            }
+            keys.sort_unstable();
+            let antimodes: Vec<T> = keys.into_iter().cloned().collect();
+            return ((Vec::new(), 0, 0), (antimodes, total, 1));
+        }
+
+        // uniform counts: every value is both a mode and an antimode, so all
+        // keys must be sorted anyway - one full sort, no second collect
+        if highest_count == lowest_count {
+            let mut keys: Vec<&T> = self.data.keys().collect();
+            if keys.len() > PARALLEL_THRESHOLD {
+                keys.par_sort_unstable();
+            } else {
+                keys.sort_unstable();
+            }
+            let total = keys.len();
+            let antimodes: Vec<T> = keys.iter().take(10).map(|k| (*k).clone()).collect();
+            let modes: Vec<T> = keys.into_iter().cloned().collect();
+            return (
+                (modes, total, highest_count),
+                (antimodes, total, lowest_count),
+            );
+        }
+
+        // general case: collect only the keys that appear in the output
+        // (highest != lowest here, so a key matches at most one bucket)
+        let mut modes: Vec<&T> = Vec::new();
+        let mut antimodes: Vec<&T> = Vec::new();
+        for (k, &c) in &self.data {
+            let c = u32::try_from(c).unwrap_or(u32::MAX);
+            if c == highest_count {
+                modes.push(k);
+            } else if c == lowest_count {
+                antimodes.push(k);
+            }
+        }
+
+        if modes.len() > PARALLEL_THRESHOLD {
+            modes.par_sort_unstable();
+        } else {
+            modes.sort_unstable();
+        }
+        let antimodes_total = antimodes.len();
+        if antimodes_total > 10 {
+            antimodes.select_nth_unstable(9);
+            antimodes.truncate(10);
+        }
+        antimodes.sort_unstable();
+
+        (
+            (
+                modes.iter().map(|k| (*k).clone()).collect(),
+                modes.len(),
+                highest_count,
+            ),
+            (
+                antimodes.into_iter().cloned().collect(),
+                antimodes_total,
+                lowest_count,
+            ),
+        )
     }
 }
 
