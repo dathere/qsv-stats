@@ -1149,7 +1149,9 @@ where
 /// modes_antimodes` used to route through it too, but now uses a select-based
 /// path that avoids sorting all unique values; the
 /// `modes_antimodes_matches_unsorted` property test keeps the two results
-/// identical.)
+/// identical for counts representable in `u32`. Above `u32::MAX`,
+/// `Frequencies` selects exactly via full `u64` counts, while this core's
+/// `u32` run counts cannot represent such counts.)
 ///
 /// # Requirements
 ///

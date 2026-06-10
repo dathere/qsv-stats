@@ -270,8 +270,11 @@ impl<T: Eq + Hash + Ord + Clone + Send + Sync> Frequencies<T> {
     /// Returns the modes and antimodes of the data.
     ///
     /// Produces results identical to [`crate::Unsorted::modes_antimodes`] for the
-    /// same multiset of samples (verified by the `modes_antimodes_matches_unsorted`
-    /// property test and the equivalence assertion in `benches/modesfreq.rs`).
+    /// same multiset of samples with per-value counts <= `u32::MAX` (verified by
+    /// the `modes_antimodes_matches_unsorted` property test and the equivalence
+    /// assertion in `benches/modesfreq.rs`). Above that the two diverge:
+    /// selection here is exact via full `u64` counts, while `Unsorted` tracks
+    /// `u32` run counts (and cannot practically hold that many samples anyway).
     ///
     /// Rather than sorting all unique values, this only sorts what the output
     /// actually contains: one O(c) pass over the counts finds the
