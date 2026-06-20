@@ -487,13 +487,16 @@ where
 
     let n = len as f64;
 
-    // Sample excess kurtosis formula:
-    // kurtosis = (n(n+1) * Σ((x_i - mean)⁴)) / ((n-1)(n-2)(n-3) * variance²) - 3(n-1)²/((n-2)(n-3))
+    // Sample excess kurtosis (G2 estimator). `variance_sq` is the POPULATION
+    // variance squared (variance = Σ(x_i - mean)² / n), so the canonical G2 form
+    // (which divides by the sample variance s⁴ = (Σ/(n-1))²) is rewritten here for
+    // population variance, folding the (n-1)²/n² factor into the coefficient:
+    // kurtosis = ((n-1)(n+1) * Σ((x_i - mean)⁴)) / (n(n-2)(n-3) * variance²) - 3(n-1)²/((n-2)(n-3))
     let adj_denominator = (n - 2.0) * (n - 3.0);
-    let denominator = (n - 1.0) * adj_denominator;
+    let first_term_denominator = n * adj_denominator;
     let adjustment = 3.0 * (n - 1.0) * (n - 1.0) / adj_denominator;
-    let kurtosis =
-        (n * (n + 1.0) * fourth_power_sum).mul_add(1.0 / (denominator * variance_sq), -adjustment);
+    let kurtosis = ((n - 1.0) * (n + 1.0) * fourth_power_sum)
+        .mul_add(1.0 / (first_term_denominator * variance_sq), -adjustment);
 
     Some(kurtosis)
 }
@@ -2614,19 +2617,18 @@ mod test {
 
     #[test]
     fn kurtosis_exact_calculation() {
-        // Test with exact calculation for [1, 2, 3, 4]
-        // Mean = 2.5
-        // Variance = ((1-2.5)^2 + (2-2.5)^2 + (3-2.5)^2 + (4-2.5)^2) / 4 = (2.25 + 0.25 + 0.25 + 2.25) / 4 = 1.25
-        // Variance^2 = 1.5625
-        // Fourth powers: (1-2.5)^4 + (2-2.5)^4 + (3-2.5)^4 + (4-2.5)^4 = 5.0625 + 0.0625 + 0.0625 + 5.0625 = 10.25
-        // n = 4
-        // Kurtosis = (4*5*10.25) / (3*2*1*1.5625) - 3*3*3/(2*1) = 205 / 9.375 - 13.5 = 21.8667 - 13.5 = 8.3667
+        // Test with exact calculation for [1, 2, 3, 4] (G2 sample excess kurtosis).
+        // Mean = 2.5; population variance = 5.0/4 = 1.25, variance^2 = 1.5625
+        // Fourth powers sum: 5.0625 + 0.0625 + 0.0625 + 5.0625 = 10.25; n = 4
+        // first term = (n-1)(n+1)*Σ⁴ / (n(n-2)(n-3)*var²) = 3*5*10.25 / (4*2*1*1.5625) = 153.75/12.5 = 12.3
+        // adjustment = 3(n-1)²/((n-2)(n-3)) = 3*9/(2*1) = 13.5
+        // Kurtosis = 12.3 - 13.5 = -1.2  (matches scipy.stats.kurtosis([1,2,3,4], bias=False))
         let mut unsorted = Unsorted::new();
         unsorted.extend(vec![1, 2, 3, 4]);
         let result = unsorted.kurtosis(None, None).unwrap();
         assert!(
-            (result - 8.366_67).abs() < 1e-4,
-            "expected ~8.36667, got {result}"
+            (result - (-1.2)).abs() < 1e-4,
+            "expected ~-1.2, got {result}"
         );
     }
 
