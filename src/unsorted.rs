@@ -489,8 +489,9 @@ where
 
     // Sample excess kurtosis formula:
     // kurtosis = (n(n+1) * Σ((x_i - mean)⁴)) / ((n-1)(n-2)(n-3) * variance²) - 3(n-1)²/((n-2)(n-3))
-    let denominator = (n - 1.0) * (n - 2.0) * (n - 3.0);
-    let adjustment = 3.0 * (n - 1.0) * (n - 1.0) / denominator;
+    let adj_denominator = (n - 2.0) * (n - 3.0);
+    let denominator = (n - 1.0) * adj_denominator;
+    let adjustment = 3.0 * (n - 1.0) * (n - 1.0) / adj_denominator;
     let kurtosis =
         (n * (n + 1.0) * fourth_power_sum).mul_add(1.0 / (denominator * variance_sq), -adjustment);
 
@@ -2623,8 +2624,10 @@ mod test {
         let mut unsorted = Unsorted::new();
         unsorted.extend(vec![1, 2, 3, 4]);
         let result = unsorted.kurtosis(None, None).unwrap();
-        // For small samples, kurtosis can be very high
-        assert!(result.is_finite());
+        assert!(
+            (result - 8.366_67).abs() < 1e-4,
+            "expected ~8.36667, got {result}"
+        );
     }
 
     #[test]
@@ -2636,6 +2639,29 @@ mod test {
         // Uniform distribution has excess kurtosis = -1.2
         // But for small samples, it can vary significantly
         assert!(result.is_finite());
+    }
+
+    #[test]
+    fn kurtosis_uniform_is_negative_excess() {
+        // continuous uniform has excess kurtosis -1.2; a fine 0..=100 grid approximates it
+        let data: Vec<f64> = (0..2000).map(|i| i as f64 * 100.0 / 1999.0).collect();
+        let mut u = Unsorted::new();
+        u.extend(data);
+        let k = u.kurtosis(None, None).unwrap();
+        assert!((k - (-1.2)).abs() < 0.05, "expected ~-1.2, got {k}");
+    }
+
+    #[test]
+    fn kurtosis_two_point_is_strongly_negative() {
+        // {0,100} half-and-half -> excess kurtosis -> -2.0
+        let mut u = Unsorted::new();
+        u.extend(
+            (0..2000)
+                .map(|i| if i % 2 == 0 { 0.0 } else { 100.0 })
+                .collect::<Vec<f64>>(),
+        );
+        let k = u.kurtosis(None, None).unwrap();
+        assert!((k - (-2.0)).abs() < 0.05, "expected ~-2.0, got {k}");
     }
 
     #[test]
