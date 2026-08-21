@@ -385,7 +385,9 @@ where
     // Use pre-calculated mean if provided, otherwise compute it
     let mean = precalc_mean.unwrap_or_else(|| {
         let sum: f64 = if len < PARALLEL_THRESHOLD {
-            // Iterator sum enables auto-vectorization (SIMD) by the compiler
+            // NOTE: f64 `.sum()` does NOT auto-vectorize — FP addition is not
+            // associative, so LLVM must preserve the sequential fold order.
+            // Rust 1.98's `algebraic_add` would lift that restriction.
             data.iter()
                 // SAFETY: to_f64() always returns Some for standard numeric types (f32/f64, i/u 8-64)
                 .map(|x| unsafe { x.0.to_f64().unwrap_unchecked() })
@@ -628,7 +630,9 @@ where
     // Use pre-calculated mean if provided, otherwise compute it
     let mean = precalc_mean.unwrap_or_else(|| {
         let sum: f64 = if len < PARALLEL_THRESHOLD {
-            // Iterator sum enables auto-vectorization (SIMD) by the compiler
+            // NOTE: f64 `.sum()` does NOT auto-vectorize — FP addition is not
+            // associative, so LLVM must preserve the sequential fold order.
+            // Rust 1.98's `algebraic_add` would lift that restriction.
             data.iter()
                 // SAFETY: to_f64() always returns Some for standard numeric types (f32/f64, i/u 8-64)
                 .map(|x| unsafe { x.0.to_f64().unwrap_unchecked() })
