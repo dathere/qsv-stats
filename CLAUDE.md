@@ -17,7 +17,7 @@ cargo test --lib             # Library tests only
 cargo doc --open             # Generate and view documentation
 ```
 
-MSRV: 1.96 (Rust edition 2024)
+MSRV: 1.98 (Rust edition 2024) — required by the `f64::algebraic_*` ops used in unsorted.rs' reduction passes
 
 ## Architecture
 
@@ -45,6 +45,7 @@ pub trait Commute: Sized {
 
 - **Parallel threshold:** Datasets ≥10,000 elements use rayon parallel sort; smaller use sequential. The sort path uses a separate threshold of 10,240 (a multiple of 2048).
 - **FMA:** `.mul_add()` used throughout for precision and speed.
+- **Algebraic float ops:** the unsorted.rs reduction passes (gini, kurtosis, atkinson, mean sum) use Rust 1.98's `f64::algebraic_*` via the `fp` helper module — LLVM reassociates them into multi-accumulator SIMD (~5-7x, and slightly *more* accurate), at the cost of bit-identical results across toolchains/targets. These passes use `REDUCTION_PARALLEL_THRESHOLD` (1M) instead of `PARALLEL_THRESHOLD`. **Never** convert `online.rs`'s Welford update to algebraic ops — it's a loop-carried recurrence and the naive conversion is 2.5x slower (see the `fp` module docs).
 - **Precalculated values:** `gini()` accepts optional precalculated sum; `kurtosis()` accepts mean/variance; `atkinson()` accepts mean/geometric_sum — avoiding redundant computation.
 - **Lazy sorting:** `Unsorted<T>` defers sorting until a statistic is requested.
 - **Quickselect:** O(n) average selection algorithm used for median/quartile computation.

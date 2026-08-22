@@ -11,16 +11,7 @@ keywords      = ["statistics", "frequency", "mean", "stddev", "quartiles"]
 categories    = ["science", "mathematics"]
 license       = "MIT OR Unlicense"
 edition       = "2024"
-rust-version  = "1.96"
-
-[features]
-# Use Rust 1.98's `f64::algebraic_*` ops in Unsorted's reduction passes
-# (gini/kurtosis/atkinson/mean sum). Lets LLVM vectorize the reductions
-# (~6.7x on those passes, and slightly MORE accurate — multi-accumulator
-# summation approximates pairwise summation), but results are no longer
-# bit-identical across toolchains/targets/data lengths.
-# Requires Rust 1.98+; without this feature the MSRV remains 1.96.
-algebraic = []
+rust-version  = "1.98"
 
 [lib]
 name = "stats"

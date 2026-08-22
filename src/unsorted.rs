@@ -8,75 +8,40 @@ use serde::{Deserialize, Serialize};
 use {crate::Commute, crate::Partial};
 
 /// Float ops for the reduction passes below (gini/kurtosis/atkinson/mean sum),
-/// switchable to Rust 1.98's `algebraic_*` methods via the `algebraic` feature.
+/// using Rust 1.98's `algebraic_*` methods.
 ///
 /// Algebraic ops set LLVM's `reassoc`/`nsz`/`arcp`/`contract` fast-math flags,
-/// letting reduction chains vectorize with multiple accumulators (~6.7x on
+/// letting reduction chains vectorize with multiple accumulators (~5-7x on
 /// these passes, and *more* accurate than a sequential fold — multi-accumulator
 /// summation approximates pairwise summation). `nnan`/`ninf` are NOT set, so
 /// NaN propagation and the crate's NaN guards are unaffected. The cost is
-/// bit-exact reproducibility: results may differ across toolchains, targets,
-/// and data lengths.
-///
-/// With the feature disabled, these are exactly the ops previously written
-/// inline (including single-rounding FMA via `f64::mul_add`) — codegen is
-/// unchanged.
+/// bit-exact reproducibility: results may differ in the last couple of
+/// significant digits across toolchains, targets, and data lengths.
 ///
 /// Do NOT add an algebraic `div` here or convert Welford's update in
 /// online.rs: `arcp` folds `x * (1.0 / n)` into `x / n`, moving a ~10-cycle
 /// divide INTO the loop-carried recurrence — measured 2.5x SLOWER. Welford is
 /// a recurrence, not a reduction; `reassoc` cannot break it.
-// exceeding the declared MSRV (1.96) is the documented contract of this opt-in feature
-#[cfg_attr(feature = "algebraic", expect(clippy::incompatible_msrv))]
 mod fp {
-    #[cfg(feature = "algebraic")]
     #[inline(always)]
     pub fn add(a: f64, b: f64) -> f64 {
         a.algebraic_add(b)
     }
 
-    #[cfg(not(feature = "algebraic"))]
-    #[inline(always)]
-    pub fn add(a: f64, b: f64) -> f64 {
-        a + b
-    }
-
-    #[cfg(feature = "algebraic")]
     #[inline(always)]
     pub fn sub(a: f64, b: f64) -> f64 {
         a.algebraic_sub(b)
     }
 
-    #[cfg(not(feature = "algebraic"))]
-    #[inline(always)]
-    pub fn sub(a: f64, b: f64) -> f64 {
-        a - b
-    }
-
-    #[cfg(feature = "algebraic")]
     #[inline(always)]
     pub fn mul(a: f64, b: f64) -> f64 {
         a.algebraic_mul(b)
     }
 
-    #[cfg(not(feature = "algebraic"))]
-    #[inline(always)]
-    pub fn mul(a: f64, b: f64) -> f64 {
-        a * b
-    }
-
-    /// `a * b + c`. Single-rounding FMA when the feature is off; with the
-    /// feature on, `contract` lets LLVM fuse or vectorize as it sees fit.
-    #[cfg(feature = "algebraic")]
+    /// `a * b + c` — `contract` lets LLVM fuse or vectorize as it sees fit.
     #[inline(always)]
     pub fn mul_add(a: f64, b: f64, c: f64) -> f64 {
         a.algebraic_mul(b).algebraic_add(c)
-    }
-
-    #[cfg(not(feature = "algebraic"))]
-    #[inline(always)]
-    pub fn mul_add(a: f64, b: f64, c: f64) -> f64 {
-        a.mul_add(b, c)
     }
 }
 
@@ -86,16 +51,13 @@ mod fp {
 const PARALLEL_THRESHOLD: usize = 10_000;
 
 /// Rayon crossover for the vectorizable reduction passes (gini, kurtosis, and
-/// atkinson's plain mean sum). With the `algebraic` feature the sequential
-/// kernels are ~5-7x faster (multi-accumulator SIMD), which moves the measured
-/// seq-vs-parallel crossover from ~10K up to the 320K->1M+ range (Apple
-/// Silicon; kurtosis-without-precalc still loses in parallel even at 1M).
-/// Atkinson's ln/powf-bound passes keep PARALLEL_THRESHOLD — their per-element
-/// cost dwarfs the adds, so their crossover doesn't move.
-#[cfg(feature = "algebraic")]
+/// atkinson's plain mean sum). The algebraic sequential kernels are ~5-7x
+/// faster than strict-FP ones (multi-accumulator SIMD), which puts the
+/// measured seq-vs-parallel crossover in the 320K->1M+ range (Apple Silicon;
+/// kurtosis-without-precalc still loses in parallel even at 1M). Atkinson's
+/// ln/powf-bound passes keep PARALLEL_THRESHOLD — their per-element cost
+/// dwarfs the adds, so their crossover doesn't move.
 const REDUCTION_PARALLEL_THRESHOLD: usize = 1_000_000;
-#[cfg(not(feature = "algebraic"))]
-const REDUCTION_PARALLEL_THRESHOLD: usize = PARALLEL_THRESHOLD;
 
 /// Compute the exact median on a stream of data.
 ///
@@ -473,10 +435,8 @@ where
     // Use pre-calculated mean if provided, otherwise compute it
     let mean = precalc_mean.unwrap_or_else(|| {
         let sum: f64 = if len < REDUCTION_PARALLEL_THRESHOLD {
-            // NOTE: without the `algebraic` feature this fold does NOT
-            // auto-vectorize — FP addition is not associative, so LLVM must
-            // preserve the sequential fold order. With the feature enabled,
-            // fp::add may reassociate and the loop vectorizes.
+            // fp::add may reassociate, so this fold auto-vectorizes
+            // (multi-accumulator SIMD) — a strict-FP `.sum()` would not.
             data.iter().fold(0.0_f64, |acc, x| {
                 // SAFETY: to_f64() always returns Some for standard numeric types (f32/f64, i/u 8-64)
                 fp::add(acc, unsafe { x.0.to_f64().unwrap_unchecked() })
@@ -728,10 +688,8 @@ where
     // Use pre-calculated mean if provided, otherwise compute it
     let mean = precalc_mean.unwrap_or_else(|| {
         let sum: f64 = if len < REDUCTION_PARALLEL_THRESHOLD {
-            // NOTE: without the `algebraic` feature this fold does NOT
-            // auto-vectorize — FP addition is not associative, so LLVM must
-            // preserve the sequential fold order. With the feature enabled,
-            // fp::add may reassociate and the loop vectorizes.
+            // fp::add may reassociate, so this fold auto-vectorizes
+            // (multi-accumulator SIMD) — a strict-FP `.sum()` would not.
             data.iter().fold(0.0_f64, |acc, x| {
                 // SAFETY: to_f64() always returns Some for standard numeric types (f32/f64, i/u 8-64)
                 fp::add(acc, unsafe { x.0.to_f64().unwrap_unchecked() })
