@@ -7,10 +7,95 @@ use serde::{Deserialize, Serialize};
 
 use {crate::Commute, crate::Partial};
 
+/// Float ops for the reduction passes below (gini/kurtosis/atkinson/mean sum),
+/// switchable to Rust 1.98's `algebraic_*` methods via the `algebraic` feature.
+///
+/// Algebraic ops set LLVM's `reassoc`/`nsz`/`arcp`/`contract` fast-math flags,
+/// letting reduction chains vectorize with multiple accumulators (~6.7x on
+/// these passes, and *more* accurate than a sequential fold — multi-accumulator
+/// summation approximates pairwise summation). `nnan`/`ninf` are NOT set, so
+/// NaN propagation and the crate's NaN guards are unaffected. The cost is
+/// bit-exact reproducibility: results may differ across toolchains, targets,
+/// and data lengths.
+///
+/// With the feature disabled, these are exactly the ops previously written
+/// inline (including single-rounding FMA via `f64::mul_add`) — codegen is
+/// unchanged.
+///
+/// Do NOT add an algebraic `div` here or convert Welford's update in
+/// online.rs: `arcp` folds `x * (1.0 / n)` into `x / n`, moving a ~10-cycle
+/// divide INTO the loop-carried recurrence — measured 2.5x SLOWER. Welford is
+/// a recurrence, not a reduction; `reassoc` cannot break it.
+// exceeding the declared MSRV (1.96) is the documented contract of this opt-in feature
+#[cfg_attr(feature = "algebraic", expect(clippy::incompatible_msrv))]
+mod fp {
+    #[cfg(feature = "algebraic")]
+    #[inline(always)]
+    pub fn add(a: f64, b: f64) -> f64 {
+        a.algebraic_add(b)
+    }
+
+    #[cfg(not(feature = "algebraic"))]
+    #[inline(always)]
+    pub fn add(a: f64, b: f64) -> f64 {
+        a + b
+    }
+
+    #[cfg(feature = "algebraic")]
+    #[inline(always)]
+    pub fn sub(a: f64, b: f64) -> f64 {
+        a.algebraic_sub(b)
+    }
+
+    #[cfg(not(feature = "algebraic"))]
+    #[inline(always)]
+    pub fn sub(a: f64, b: f64) -> f64 {
+        a - b
+    }
+
+    #[cfg(feature = "algebraic")]
+    #[inline(always)]
+    pub fn mul(a: f64, b: f64) -> f64 {
+        a.algebraic_mul(b)
+    }
+
+    #[cfg(not(feature = "algebraic"))]
+    #[inline(always)]
+    pub fn mul(a: f64, b: f64) -> f64 {
+        a * b
+    }
+
+    /// `a * b + c`. Single-rounding FMA when the feature is off; with the
+    /// feature on, `contract` lets LLVM fuse or vectorize as it sees fit.
+    #[cfg(feature = "algebraic")]
+    #[inline(always)]
+    pub fn mul_add(a: f64, b: f64, c: f64) -> f64 {
+        a.algebraic_mul(b).algebraic_add(c)
+    }
+
+    #[cfg(not(feature = "algebraic"))]
+    #[inline(always)]
+    pub fn mul_add(a: f64, b: f64, c: f64) -> f64 {
+        a.mul_add(b, c)
+    }
+}
+
 // PARALLEL_THRESHOLD (10,000) is the minimum dataset size for rayon parallel sort.
 // The separate 10,240 threshold in cardinality estimation (5 × 2,048) is aligned to
 // cache-line-friendly chunk sizes for parallel iterator reduction.
 const PARALLEL_THRESHOLD: usize = 10_000;
+
+/// Rayon crossover for the vectorizable reduction passes (gini, kurtosis, and
+/// atkinson's plain mean sum). With the `algebraic` feature the sequential
+/// kernels are ~5-7x faster (multi-accumulator SIMD), which moves the measured
+/// seq-vs-parallel crossover from ~10K up to the 320K->1M+ range (Apple
+/// Silicon; kurtosis-without-precalc still loses in parallel even at 1M).
+/// Atkinson's ln/powf-bound passes keep PARALLEL_THRESHOLD — their per-element
+/// cost dwarfs the adds, so their crossover doesn't move.
+#[cfg(feature = "algebraic")]
+const REDUCTION_PARALLEL_THRESHOLD: usize = 1_000_000;
+#[cfg(not(feature = "algebraic"))]
+const REDUCTION_PARALLEL_THRESHOLD: usize = PARALLEL_THRESHOLD;
 
 /// Compute the exact median on a stream of data.
 ///
@@ -306,34 +391,37 @@ where
             return None;
         }
         // Only need weighted_sum — single pass
-        let weighted_sum = if len < PARALLEL_THRESHOLD {
+        let weighted_sum = if len < REDUCTION_PARALLEL_THRESHOLD {
             let mut weighted_sum = 0.0;
             for (i, x) in data.iter().enumerate() {
                 // SAFETY: to_f64() always returns Some for standard numeric types
                 let val = unsafe { x.0.to_f64().unwrap_unchecked() };
-                weighted_sum = ((i + 1) as f64).mul_add(val, weighted_sum);
+                weighted_sum = fp::mul_add((i + 1) as f64, val, weighted_sum);
             }
             weighted_sum
         } else {
             data.par_iter()
                 .enumerate()
-                .map(|(i, x)| {
-                    // SAFETY: to_f64() always returns Some for standard numeric types
-                    let val = unsafe { x.0.to_f64().unwrap_unchecked() };
-                    (i + 1) as f64 * val
-                })
+                .fold(
+                    || 0.0_f64,
+                    |acc, (i, x)| {
+                        // SAFETY: to_f64() always returns Some for standard numeric types
+                        let val = unsafe { x.0.to_f64().unwrap_unchecked() };
+                        fp::add(acc, fp::mul((i + 1) as f64, val))
+                    },
+                )
                 .sum()
         };
         (precalc, weighted_sum)
-    } else if len < PARALLEL_THRESHOLD {
+    } else if len < REDUCTION_PARALLEL_THRESHOLD {
         // Fused single pass: compute both sum and weighted_sum together
         let mut sum = 0.0;
         let mut weighted_sum = 0.0;
         for (i, x) in data.iter().enumerate() {
             // SAFETY: to_f64() always returns Some for standard numeric types (f32/f64, i/u 8-64)
             let val = unsafe { x.0.to_f64().unwrap_unchecked() };
-            sum += val;
-            weighted_sum = ((i + 1) as f64).mul_add(val, weighted_sum);
+            sum = fp::add(sum, val);
+            weighted_sum = fp::mul_add((i + 1) as f64, val, weighted_sum);
         }
         (sum, weighted_sum)
     } else {
@@ -345,7 +433,7 @@ where
                 |acc, (i, x)| {
                     // SAFETY: to_f64() always returns Some for standard numeric types
                     let val = unsafe { x.0.to_f64().unwrap_unchecked() };
-                    (acc.0 + val, ((i + 1) as f64).mul_add(val, acc.1))
+                    (fp::add(acc.0, val), fp::mul_add((i + 1) as f64, val, acc.1))
                 },
             )
             .reduce(|| (0.0, 0.0), |a, b| (a.0 + b.0, a.1 + b.1))
@@ -384,18 +472,22 @@ where
 
     // Use pre-calculated mean if provided, otherwise compute it
     let mean = precalc_mean.unwrap_or_else(|| {
-        let sum: f64 = if len < PARALLEL_THRESHOLD {
-            // NOTE: f64 `.sum()` does NOT auto-vectorize — FP addition is not
-            // associative, so LLVM must preserve the sequential fold order.
-            // Rust 1.98's `algebraic_add` would lift that restriction.
-            data.iter()
+        let sum: f64 = if len < REDUCTION_PARALLEL_THRESHOLD {
+            // NOTE: without the `algebraic` feature this fold does NOT
+            // auto-vectorize — FP addition is not associative, so LLVM must
+            // preserve the sequential fold order. With the feature enabled,
+            // fp::add may reassociate and the loop vectorizes.
+            data.iter().fold(0.0_f64, |acc, x| {
                 // SAFETY: to_f64() always returns Some for standard numeric types (f32/f64, i/u 8-64)
-                .map(|x| unsafe { x.0.to_f64().unwrap_unchecked() })
-                .sum()
+                fp::add(acc, unsafe { x.0.to_f64().unwrap_unchecked() })
+            })
         } else {
             data.par_iter()
-                // SAFETY: to_f64() always returns Some for standard numeric types
-                .map(|x| unsafe { x.0.to_f64().unwrap_unchecked() })
+                .fold(
+                    || 0.0_f64,
+                    // SAFETY: to_f64() always returns Some for standard numeric types
+                    |acc, x| fp::add(acc, unsafe { x.0.to_f64().unwrap_unchecked() }),
+                )
                 .sum()
         };
         sum / len as f64
@@ -414,42 +506,45 @@ where
         let variance_sq = variance * variance;
 
         // Still need to compute fourth_power_sum
-        let fourth_power_sum = if len < PARALLEL_THRESHOLD {
+        let fourth_power_sum = if len < REDUCTION_PARALLEL_THRESHOLD {
             let mut sum = 0.0;
             for x in data {
                 // SAFETY: to_f64() always returns Some for standard numeric types
                 let val = unsafe { x.0.to_f64().unwrap_unchecked() };
-                let diff = val - mean;
-                let diff_sq = diff * diff;
-                sum = diff_sq.mul_add(diff_sq, sum);
+                let diff = fp::sub(val, mean);
+                let diff_sq = fp::mul(diff, diff);
+                sum = fp::mul_add(diff_sq, diff_sq, sum);
             }
             sum
         } else {
             data.par_iter()
-                .map(|x| {
-                    // SAFETY: to_f64() always returns Some for standard numeric types
-                    let val = unsafe { x.0.to_f64().unwrap_unchecked() };
-                    let diff = val - mean;
-                    let diff_sq = diff * diff;
-                    diff_sq * diff_sq
-                })
+                .fold(
+                    || 0.0_f64,
+                    |acc, x| {
+                        // SAFETY: to_f64() always returns Some for standard numeric types
+                        let val = unsafe { x.0.to_f64().unwrap_unchecked() };
+                        let diff = fp::sub(val, mean);
+                        let diff_sq = fp::mul(diff, diff);
+                        fp::add(acc, fp::mul(diff_sq, diff_sq))
+                    },
+                )
                 .sum()
         };
 
         (variance_sq, fourth_power_sum)
     } else {
         // Compute both variance_sum and fourth_power_sum
-        let (variance_sum, fourth_power_sum) = if len < PARALLEL_THRESHOLD {
+        let (variance_sum, fourth_power_sum) = if len < REDUCTION_PARALLEL_THRESHOLD {
             let mut variance_sum = 0.0;
             let mut fourth_power_sum = 0.0;
 
             for x in data {
                 // SAFETY: to_f64() always returns Some for standard numeric types
                 let val = unsafe { x.0.to_f64().unwrap_unchecked() };
-                let diff = val - mean;
-                let diff_sq = diff * diff;
-                variance_sum += diff_sq;
-                fourth_power_sum = diff_sq.mul_add(diff_sq, fourth_power_sum);
+                let diff = fp::sub(val, mean);
+                let diff_sq = fp::mul(diff, diff);
+                variance_sum = fp::add(variance_sum, diff_sq);
+                fourth_power_sum = fp::mul_add(diff_sq, diff_sq, fourth_power_sum);
             }
 
             (variance_sum, fourth_power_sum)
@@ -461,9 +556,12 @@ where
                     |acc, x| {
                         // SAFETY: to_f64() always returns Some for standard numeric types
                         let val = unsafe { x.0.to_f64().unwrap_unchecked() };
-                        let diff = val - mean;
-                        let diff_sq = diff * diff;
-                        (acc.0 + diff_sq, diff_sq.mul_add(diff_sq, acc.1))
+                        let diff = fp::sub(val, mean);
+                        let diff_sq = fp::mul(diff, diff);
+                        (
+                            fp::add(acc.0, diff_sq),
+                            fp::mul_add(diff_sq, diff_sq, acc.1),
+                        )
                     },
                 )
                 .reduce(|| (0.0, 0.0), |a, b| (a.0 + b.0, a.1 + b.1))
@@ -590,8 +688,8 @@ where
                 if v.is_nan() || v <= 0.0 {
                     bad = true;
                 } else {
-                    s += v;
-                    ls += v.ln();
+                    s = fp::add(s, v);
+                    ls = fp::add(ls, v.ln());
                 }
             }
             (s, ls, bad)
@@ -605,7 +703,7 @@ where
                         if v.is_nan() || v <= 0.0 {
                             (s, ls, true)
                         } else {
-                            (s + v, ls + v.ln(), bad)
+                            (fp::add(s, v), fp::add(ls, v.ln()), bad)
                         }
                     },
                 )
@@ -629,18 +727,22 @@ where
 
     // Use pre-calculated mean if provided, otherwise compute it
     let mean = precalc_mean.unwrap_or_else(|| {
-        let sum: f64 = if len < PARALLEL_THRESHOLD {
-            // NOTE: f64 `.sum()` does NOT auto-vectorize — FP addition is not
-            // associative, so LLVM must preserve the sequential fold order.
-            // Rust 1.98's `algebraic_add` would lift that restriction.
-            data.iter()
+        let sum: f64 = if len < REDUCTION_PARALLEL_THRESHOLD {
+            // NOTE: without the `algebraic` feature this fold does NOT
+            // auto-vectorize — FP addition is not associative, so LLVM must
+            // preserve the sequential fold order. With the feature enabled,
+            // fp::add may reassociate and the loop vectorizes.
+            data.iter().fold(0.0_f64, |acc, x| {
                 // SAFETY: to_f64() always returns Some for standard numeric types (f32/f64, i/u 8-64)
-                .map(|x| unsafe { x.0.to_f64().unwrap_unchecked() })
-                .sum()
+                fp::add(acc, unsafe { x.0.to_f64().unwrap_unchecked() })
+            })
         } else {
             data.par_iter()
-                // SAFETY: to_f64() always returns Some for standard numeric types
-                .map(|x| unsafe { x.0.to_f64().unwrap_unchecked() })
+                .fold(
+                    || 0.0_f64,
+                    // SAFETY: to_f64() always returns Some for standard numeric types
+                    |acc, x| fp::add(acc, unsafe { x.0.to_f64().unwrap_unchecked() }),
+                )
                 .sum()
         };
         sum / len as f64
@@ -668,19 +770,23 @@ where
                     // Geometric mean undefined for non-positive values
                     return None;
                 }
-                sum += val.ln();
+                sum = fp::add(sum, val.ln());
             }
             sum
         } else {
             data.par_iter()
-                .map(|x| {
-                    // SAFETY: to_f64() always returns Some for standard numeric types
-                    let val = unsafe { x.0.to_f64().unwrap_unchecked() };
-                    if val <= 0.0 {
-                        return f64::NAN;
-                    }
-                    val.ln()
-                })
+                .fold(
+                    || 0.0_f64,
+                    |acc, x| {
+                        // SAFETY: to_f64() always returns Some for standard numeric types
+                        let val = unsafe { x.0.to_f64().unwrap_unchecked() };
+                        if val <= 0.0 {
+                            // NaN sentinel propagates through every later add
+                            return f64::NAN;
+                        }
+                        fp::add(acc, val.ln())
+                    },
+                )
                 .sum()
         };
 
@@ -709,20 +815,24 @@ where
                 return None;
             }
             let ratio = val * inv_mean;
-            sum += ratio.powf(exponent);
+            sum = fp::add(sum, ratio.powf(exponent));
         }
         sum
     } else {
         data.par_iter()
-            .map(|x| {
-                // SAFETY: to_f64() always returns Some for standard numeric types
-                let val = unsafe { x.0.to_f64().unwrap_unchecked() };
-                if val < 0.0 {
-                    return f64::NAN;
-                }
-                let ratio = val * inv_mean;
-                ratio.powf(exponent)
-            })
+            .fold(
+                || 0.0_f64,
+                |acc, x| {
+                    // SAFETY: to_f64() always returns Some for standard numeric types
+                    let val = unsafe { x.0.to_f64().unwrap_unchecked() };
+                    if val < 0.0 {
+                        // NaN sentinel propagates through every later add
+                        return f64::NAN;
+                    }
+                    let ratio = val * inv_mean;
+                    fp::add(acc, ratio.powf(exponent))
+                },
+            )
             .sum()
     };
 
