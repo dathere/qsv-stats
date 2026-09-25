@@ -71,7 +71,7 @@ impl OnlineStats {
     ///
     /// Use when only mean/variance/stddev are needed: `add` then avoids a
     /// `ln()` and a division per positive sample. `geometric_mean()` and
-    /// `harmonic_mean()` return `NaN` (also after merging into any state).
+    /// For all-positive aggregate data, both return `NaN`; zero/negative inputs retain existing semantics.
     #[must_use]
     pub const fn without_hg_sums() -> OnlineStats {
         OnlineStats {
