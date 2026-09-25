@@ -70,8 +70,10 @@ impl OnlineStats {
     /// Create initial state that skips harmonic/geometric sum tracking.
     ///
     /// Use when only mean/variance/stddev are needed: `add` then avoids a
-    /// `ln()` and a division per positive sample. `geometric_mean()` and
-    /// For all-positive aggregate data, both return `NaN`; zero/negative inputs retain existing semantics.
+    /// `ln()` and a division per positive sample. For all-positive aggregate
+    /// data, `geometric_mean()` and `harmonic_mean()` both return `NaN`;
+    /// zero/negative inputs retain existing semantics. The opt-out carries
+    /// through `merge` in either direction, even from an empty state.
     #[must_use]
     pub const fn without_hg_sums() -> OnlineStats {
         OnlineStats {
@@ -288,6 +290,9 @@ impl OnlineStats {
 impl Commute for OnlineStats {
     #[inline]
     fn merge(&mut self, v: OnlineStats) {
+        // Before the empty early-return: an empty `without_hg_sums()` state
+        // must still opt out the result, or merge order would matter.
+        self.hg_sums = self.hg_sums && v.hg_sums;
         if v.is_empty() {
             return;
         }
@@ -308,7 +313,6 @@ impl Commute for OnlineStats {
         // below is the fused multiply add version of the statement above
         self.q += meandiffsq.mul_add(s1 * s2 / total, v.q);
 
-        self.hg_sums = self.hg_sums && v.hg_sums;
         self.harmonic_sum += v.harmonic_sum;
         self.geometric_sum += v.geometric_sum;
 
@@ -864,5 +868,30 @@ mod test {
         lean.add_f64(5.0);
         assert_eq!(lean.geometric_mean(), 0.0);
         assert!(lean.harmonic_mean().is_nan());
+    }
+
+    #[test]
+    fn test_without_hg_sums_empty_merge_is_order_independent() {
+        let mut full = OnlineStats::new();
+        full.add_f64(2.0);
+        full.add_f64(8.0);
+
+        let mut a = full;
+        a.merge(OnlineStats::without_hg_sums());
+        let mut b = OnlineStats::without_hg_sums();
+        b.merge(full);
+
+        for s in [a, b] {
+            assert!(s.geometric_mean().is_nan());
+            assert!(s.harmonic_mean().is_nan());
+            assert_eq!(s.mean(), 5.0);
+            assert_eq!(s.len(), 2);
+        }
+
+        // Empty default-mode merges must not disturb hg means.
+        let mut c = full;
+        c.merge(OnlineStats::new());
+        assert!((c.geometric_mean() - 4.0).abs() < 1e-12);
+        assert!((c.harmonic_mean() - 3.2).abs() < 1e-12);
     }
 }
