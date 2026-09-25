@@ -67,6 +67,33 @@ impl OnlineStats {
         Default::default()
     }
 
+    /// Create initial state that skips harmonic/geometric sum tracking.
+    ///
+    /// Use when only mean/variance/stddev are needed: `add` then avoids a
+    /// `ln()` and a division per positive sample. `geometric_mean()` and
+    /// `harmonic_mean()` return `NaN` (also after merging into any state).
+    #[must_use]
+    pub const fn without_hg_sums() -> OnlineStats {
+        OnlineStats {
+            size: 0,
+            mean: 0.0,
+            q: 0.0,
+            harmonic_sum: 0.0,
+            geometric_sum: 0.0,
+            n_zero: 0,
+            n_negative: 0,
+            n_positive: 0,
+            hg_sums: false,
+        }
+    }
+
+    /// True when `hg_sums` was disabled by construction/merge rather than by a
+    /// zero or negative sample, so the sums are incomplete, not merely unused.
+    #[inline]
+    const fn hg_opted_out(&self) -> bool {
+        !self.hg_sums && self.n_zero == 0 && self.n_negative == 0
+    }
+
     /// Initializes `OnlineStats` from a sample.
     #[must_use]
     pub fn from_slice<T: ToPrimitive>(samples: &[T]) -> OnlineStats {
@@ -103,7 +130,7 @@ impl OnlineStats {
     /// Return the current harmonic mean.
     #[must_use]
     pub fn harmonic_mean(&self) -> f64 {
-        if self.is_empty() || self.n_zero > 0 || self.n_negative > 0 {
+        if self.is_empty() || self.n_zero > 0 || self.n_negative > 0 || self.hg_opted_out() {
             f64::NAN
         } else {
             (self.size as f64) / self.harmonic_sum
@@ -115,6 +142,7 @@ impl OnlineStats {
     pub fn geometric_mean(&self) -> f64 {
         if self.is_empty()
             || self.n_negative > 0
+            || self.hg_opted_out()
             || self.geometric_sum.is_nan()
             || self.geometric_sum == f64::INFINITY
         {
@@ -794,5 +822,47 @@ mod test {
         stats.add(&1.0f64);
         // 1/Inf = 0, so harmonic_sum = 0 + 1 = 1, result = 2/1 = 2
         assert!((stats.harmonic_mean() - 2.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_without_hg_sums_matches_moments() {
+        let data = [3usize, 7, 12, 1, 40, 9, 5];
+        let mut full = OnlineStats::new();
+        let mut lean = OnlineStats::without_hg_sums();
+        for x in &data {
+            full.add(x);
+            lean.add(x);
+        }
+        assert_eq!(full.len(), lean.len());
+        assert_eq!(full.mean().to_bits(), lean.mean().to_bits());
+        assert_eq!(full.variance().to_bits(), lean.variance().to_bits());
+        assert_eq!(full.stddev().to_bits(), lean.stddev().to_bits());
+        assert_eq!(full.n_counts(), lean.n_counts());
+        assert!(lean.geometric_mean().is_nan());
+        assert!(lean.harmonic_mean().is_nan());
+        assert!(full.geometric_mean().is_finite());
+        assert!(full.harmonic_mean().is_finite());
+    }
+
+    #[test]
+    fn test_without_hg_sums_merge_poisons_hg() {
+        let mut full = OnlineStats::new();
+        full.add_f64(2.0);
+        full.add_f64(8.0);
+        let mut lean = OnlineStats::without_hg_sums();
+        lean.add_f64(4.0);
+        full.merge(lean);
+        assert!(full.geometric_mean().is_nan());
+        assert!(full.harmonic_mean().is_nan());
+        assert!((full.mean() - 14.0 / 3.0).abs() < 1e-12);
+    }
+
+    #[test]
+    fn test_without_hg_sums_zero_semantics_unchanged() {
+        let mut lean = OnlineStats::without_hg_sums();
+        lean.add_f64(0.0);
+        lean.add_f64(5.0);
+        assert_eq!(lean.geometric_mean(), 0.0);
+        assert!(lean.harmonic_mean().is_nan());
     }
 }
