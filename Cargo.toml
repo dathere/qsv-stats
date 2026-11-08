@@ -19,14 +19,16 @@ exclude       = ["docs/", ".claude/", ".serena/", "*handoff*.md"]
 name = "stats"
 
 [dependencies]
-hashbrown  = { version = "0.17", features = ["serde"] }            # default hasher is foldhash 0.2
-num-traits = "0.2"
-rayon      = "1"
-serde      = { version = "1", features = ["derive"] }
+compact_bytes = "0.2.1"                                               # ByteKey storage: 23 bytes inline in 24
+hashbrown     = { version = "0.17", features = ["serde"] }            # default hasher is foldhash 0.2
+num-traits    = "0.2"
+rayon         = "1"
+serde         = { version = "1", features = ["derive"] }
 
 [dev-dependencies]
 criterion = "0.8"
 foldhash  = "0.2" # only for the std-vs-hashbrown comparison in benches/freqhb.rs
+postcard  = { version = "1", features = ["use-std"] } # ByteKey serde wire-compatibility test
 
 [[bench]]
 name    = "minmax"
@@ -46,4 +48,8 @@ harness = false
 
 [[bench]]
 name    = "modesfreq"
+harness = false
+
+[[bench]]
+name    = "bytekey"
 harness = false
