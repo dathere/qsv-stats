@@ -7,6 +7,7 @@ use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 
 use crate::Commute;
+use crate::bytekey::{ByteKey, ByteKeyRef};
 
 const PARALLEL_THRESHOLD: usize = 10_000;
 /// A commutative data structure for exact frequency counts.
@@ -438,6 +439,48 @@ impl Frequencies<Vec<u8>> {
     }
 }
 
+/// Borrowed-slice inserts for inline-key frequency tables. Same semantics as
+/// the `Frequencies<Vec<u8>>` methods, but keys of up to
+/// [`crate::BYTEKEY_INLINE_CAP`] bytes are stored without a heap allocation.
+/// Results (counts, modes, antimodes, serde form) are identical to
+/// `Frequencies<Vec<u8>>`; only memory use and speed differ.
+impl Frequencies<ByteKey> {
+    /// See [`Frequencies::<Vec<u8>>::add_borrowed`].
+    #[allow(clippy::inline_always)]
+    #[inline(always)]
+    pub fn add_borrowed(&mut self, v: &[u8]) {
+        *self.data.entry_ref(ByteKeyRef::new(v)).or_insert(0) += 1;
+    }
+
+    /// See [`Frequencies::<Vec<u8>>::increment_by_borrowed`].
+    #[allow(clippy::inline_always)]
+    #[inline(always)]
+    pub fn increment_by_borrowed(&mut self, v: &[u8], count: u64) {
+        *self.data.entry_ref(ByteKeyRef::new(v)).or_insert(0) += count;
+    }
+
+    /// See [`Frequencies::<Vec<u8>>::add_borrowed_capped`].
+    #[allow(clippy::inline_always)]
+    #[inline(always)]
+    pub fn add_borrowed_capped(&mut self, v: &[u8], cap: u64) -> bool {
+        let len = self.data.len() as u64;
+        match self.data.entry_ref(ByteKeyRef::new(v)) {
+            EntryRef::Occupied(mut e) => {
+                *e.get_mut() += 1;
+                true
+            }
+            EntryRef::Vacant(e) => {
+                if cap > 0 && len >= cap {
+                    false
+                } else {
+                    e.insert(1);
+                    true
+                }
+            }
+        }
+    }
+}
+
 impl<T: Eq + Hash> Commute for Frequencies<T> {
     #[inline]
     fn merge(&mut self, v: Frequencies<T>) {
@@ -525,6 +568,7 @@ impl<K> std::iter::FusedIterator for UniqueValues<'_, K> {}
 #[cfg(test)]
 mod test {
     use super::Frequencies;
+    use crate::{ByteKey, Commute};
     use std::iter::FromIterator;
 
     #[test]
@@ -803,5 +847,109 @@ mod test {
         assert_eq!(antimodes2, vec![b"a".to_vec()]);
         assert_eq!(mode_occ2, u32::MAX);
         assert_eq!(anti_occ2, u32::MAX);
+    }
+
+    /// Mixed short (inline) and long (spilled) keys with skewed counts, plus an
+    /// empty key.
+    fn bytekey_test_data() -> Vec<Vec<u8>> {
+        let mut s: u64 = 0x1234_5678;
+        let mut data: Vec<Vec<u8>> = Vec::new();
+        for _ in 0..20_000 {
+            s = s
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
+            let r = (s >> 33) as usize;
+            let key = if r.is_multiple_of(3) {
+                format!("long-key-spills-to-heap-{:05}", r % 700)
+            } else {
+                format!("k{}", (r % 300) * (r % 7))
+            };
+            data.push(key.into_bytes());
+        }
+        data.push(Vec::new());
+        data
+    }
+
+    /// Asserts two tables hold the same keys with the same counts and give
+    /// the same modes/antimodes.
+    fn assert_same_table(fv: &Frequencies<Vec<u8>>, fk: &Frequencies<ByteKey>) {
+        assert_eq!(fv.len(), fk.len());
+        assert_eq!(fv.total_count(), fk.total_count());
+        for (k, c) in &fv.data {
+            assert_eq!(fk.count(&ByteKey::from_slice(k)), *c, "key {k:?}");
+        }
+        let to_vecs = |v: Vec<ByteKey>| v.into_iter().map(Vec::from).collect::<Vec<Vec<u8>>>();
+        let ((mv, mc, mo), (av, ac, ao)) = fv.modes_antimodes();
+        let ((mk, mkc, mko), (ak, akc, ako)) = fk.modes_antimodes();
+        assert_eq!((mv, mc, mo), (to_vecs(mk), mkc, mko));
+        assert_eq!((av, ac, ao), (to_vecs(ak), akc, ako));
+    }
+
+    #[test]
+    fn bytekey_matches_vec_u8() {
+        let data = bytekey_test_data();
+        let (mut fv, mut fk) = (Frequencies::<Vec<u8>>::new(), Frequencies::<ByteKey>::new());
+        let (mut cv, mut ck) = (Frequencies::<Vec<u8>>::new(), Frequencies::<ByteKey>::new());
+        for (i, d) in data.iter().enumerate() {
+            fv.add_borrowed(d);
+            fk.add_borrowed(d);
+            fv.increment_by_borrowed(d, (i % 3) as u64);
+            fk.increment_by_borrowed(d, (i % 3) as u64);
+            assert_eq!(
+                cv.add_borrowed_capped(d, 500),
+                ck.add_borrowed_capped(d, 500)
+            );
+        }
+        assert_same_table(&fv, &fk);
+        assert_same_table(&cv, &ck);
+    }
+
+    #[test]
+    fn bytekey_merge_matches_vec_u8() {
+        // Build per-chunk partial tables (as qsv does) and merge them in.
+        let data = bytekey_test_data();
+        let (mut fv, mut fk) = (Frequencies::<Vec<u8>>::new(), Frequencies::<ByteKey>::new());
+        for chunk in data.chunks(3_001) {
+            let (mut pv, mut pk) = (Frequencies::<Vec<u8>>::new(), Frequencies::<ByteKey>::new());
+            for d in chunk {
+                pv.add_borrowed(d);
+                pk.add_borrowed(d);
+            }
+            fv.merge(pv);
+            fk.merge(pk);
+        }
+        assert_same_table(&fv, &fk);
+        // Merging a table into itself doubles every count on both sides.
+        let (mut dv, mut dk) = (fv.clone(), fk.clone());
+        dv.merge(fv);
+        dk.merge(fk);
+        assert_same_table(&dv, &dk);
+    }
+
+    #[test]
+    fn bytekey_serde_wire_compatible() {
+        let data = bytekey_test_data();
+        let (mut fv, mut fk) = (Frequencies::<Vec<u8>>::new(), Frequencies::<ByteKey>::new());
+        for d in &data {
+            fv.add_borrowed(d);
+            fk.add_borrowed(d);
+        }
+        // Each key serializes to exactly the same bytes as the Vec<u8> key.
+        for d in &data {
+            assert_eq!(
+                postcard::to_allocvec(&ByteKey::from_slice(d)).unwrap(),
+                postcard::to_allocvec(d).unwrap()
+            );
+        }
+        // Round trip.
+        let bk = postcard::to_allocvec(&fk).unwrap();
+        let back: Frequencies<ByteKey> = postcard::from_bytes(&bk).unwrap();
+        assert!(back == fk);
+        // Cross-type: each table's bytes deserialize as the other key type.
+        let bv = postcard::to_allocvec(&fv).unwrap();
+        let k_from_v: Frequencies<ByteKey> = postcard::from_bytes(&bv).unwrap();
+        let v_from_k: Frequencies<Vec<u8>> = postcard::from_bytes(&bk).unwrap();
+        assert_same_table(&fv, &k_from_v);
+        assert!(v_from_k == fv);
     }
 }

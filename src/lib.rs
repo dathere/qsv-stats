@@ -11,6 +11,7 @@ use std::hash;
 
 use serde::{Deserialize, Serialize};
 
+pub use bytekey::{BYTEKEY_INLINE_CAP, ByteKey, ByteKeyRef};
 pub use frequency::{Frequencies, UniqueValues};
 pub use minmax::MinMax;
 pub use online::{OnlineStats, mean, stddev, variance};
@@ -194,6 +195,7 @@ impl<T: Commute> Commute for Vec<T> {
     }
 }
 
+mod bytekey;
 mod frequency;
 mod minmax;
 mod online;
