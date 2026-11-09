@@ -62,4 +62,4 @@ Tests are embedded in each module via `#[cfg(test)]` blocks (140+ tests total). 
 
 ## Dependencies
 
-Only 5 production dependencies: `compact_bytes` (`ByteKey` inline storage), `hashbrown` (default foldhash 0.2 hasher), `num-traits`, `rayon`, `serde`.
+Only 5 production dependencies: `compact_bytes` (`ByteKey` inline storage; little-endian only — big-endian falls back to `Vec<u8>` until ParkMyCar/compact_bytes#12 ships), `hashbrown` (default foldhash 0.2 hasher), `num-traits`, `rayon`, `serde`.
