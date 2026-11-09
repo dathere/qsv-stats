@@ -19,11 +19,17 @@ exclude       = ["docs/", ".claude/", ".serena/", "*handoff*.md"]
 name = "stats"
 
 [dependencies]
-compact_bytes = "0.2.1"                                               # ByteKey storage: 23 bytes inline in 24
 hashbrown     = { version = "0.17", features = ["serde"] }            # default hasher is foldhash 0.2
 num-traits    = "0.2"
 rayon         = "1"
 serde         = { version = "1", features = ["derive"] }
+
+# ByteKey storage: 23 bytes inline in 24. Little-endian only: compact_bytes
+# 0.2.1 mis-tags heap values on big-endian (ParkMyCar/compact_bytes#12), so
+# big-endian targets fall back to Vec<u8> (see src/bytekey.rs). TEMPORARY:
+# move back to [dependencies] once a fixed compact_bytes is released.
+[target.'cfg(target_endian = "little")'.dependencies]
+compact_bytes = "0.2.1"
 
 [dev-dependencies]
 criterion = "0.8"

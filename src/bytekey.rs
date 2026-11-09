@@ -12,6 +12,9 @@
 //! last byte as the inline/heap tag). It is wrapped, not re-exported, so the
 //! backing type can change without an API break.
 //!
+//! On big-endian targets (e.g. s390x) storage falls back to a plain `Vec<u8>`
+//! (no inline keys, [`BYTEKEY_INLINE_CAP`] is 0); see the `storage` module.
+//!
 //! Hashing, equality, ordering and serde all behave as the equivalent
 //! `[u8]` / `Vec<u8>` would, so `Frequencies<ByteKey>` produces the same
 //! counts, modes and antimodes (same order) as `Frequencies<Vec<u8>>`.
@@ -20,15 +23,82 @@ use std::borrow::Borrow;
 use std::hash::{Hash, Hasher};
 use std::ops::Deref;
 
-use compact_bytes::CompactBytes;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
+use storage::Storage;
+
 /// Keys up to this many bytes are stored inline (no heap allocation).
-pub const BYTEKEY_INLINE_CAP: usize = CompactBytes::MAX_INLINE;
+/// 0 on big-endian targets, where storage falls back to `Vec<u8>`.
+pub const BYTEKEY_INLINE_CAP: usize = storage::INLINE_CAP;
+
+/// Backing storage for [`ByteKey`].
+///
+/// TEMPORARY big-endian fallback: compact_bytes 0.2.1 overlaps its inline tag
+/// byte with the last byte of the heap `cap` field. On big-endian that is the
+/// LEAST significant byte, so any heap capacity whose low byte is >= 0x80
+/// (e.g. 128) is misread as inline: wrong contents, leaked buffers, and
+/// out-of-bounds reads (reproduced under miri on s390x). Fixed upstream in
+/// <https://github.com/ParkMyCar/compact_bytes/pull/12>. Remove this fallback
+/// (and the target-specific dependency in Cargo.toml) once a compact_bytes
+/// release with that fix is on crates.io.
+#[cfg(target_endian = "little")]
+mod storage {
+    pub(super) type Storage = compact_bytes::CompactBytes;
+    pub(super) const INLINE_CAP: usize = Storage::MAX_INLINE;
+
+    #[inline]
+    pub(super) fn new(bytes: &[u8]) -> Storage {
+        Storage::new(bytes)
+    }
+    #[inline]
+    pub(super) fn empty() -> Storage {
+        Storage::empty()
+    }
+    #[inline]
+    pub(super) fn from_vec(v: Vec<u8>) -> Storage {
+        Storage::from(v)
+    }
+    #[inline]
+    pub(super) fn into_vec(s: Storage) -> Vec<u8> {
+        s.into_vec()
+    }
+    #[inline]
+    pub(super) fn is_inline(s: &Storage) -> bool {
+        !s.spilled()
+    }
+}
+
+#[cfg(target_endian = "big")]
+mod storage {
+    pub(super) type Storage = Vec<u8>;
+    pub(super) const INLINE_CAP: usize = 0;
+
+    #[inline]
+    pub(super) fn new(bytes: &[u8]) -> Storage {
+        bytes.to_vec()
+    }
+    #[inline]
+    pub(super) fn empty() -> Storage {
+        Vec::new()
+    }
+    #[inline]
+    pub(super) fn from_vec(v: Vec<u8>) -> Storage {
+        v
+    }
+    #[inline]
+    pub(super) fn into_vec(s: Storage) -> Vec<u8> {
+        s
+    }
+    #[inline]
+    pub(super) fn is_inline(s: &Storage) -> bool {
+        // Only an empty, never-allocated key has no heap buffer.
+        s.capacity() == 0
+    }
+}
 
 /// An owned byte-string key with small-buffer optimization. See the module docs.
 #[derive(Clone, PartialEq, Eq)]
-pub struct ByteKey(CompactBytes);
+pub struct ByteKey(Storage);
 
 /// The borrowed form of [`ByteKey`] (a `[u8]` newtype), used so hashbrown's
 /// `entry_ref` can probe with a borrowed slice and only build an owned
@@ -53,7 +123,7 @@ impl ByteKey {
     #[inline]
     #[must_use]
     pub fn from_slice(bytes: &[u8]) -> Self {
-        Self(CompactBytes::new(bytes))
+        Self(storage::new(bytes))
     }
 
     #[inline]
@@ -66,14 +136,14 @@ impl ByteKey {
     #[inline]
     #[must_use]
     pub fn is_inline(&self) -> bool {
-        !self.0.spilled()
+        storage::is_inline(&self.0)
     }
 }
 
 impl Default for ByteKey {
     #[inline]
     fn default() -> Self {
-        Self(CompactBytes::empty())
+        Self(storage::empty())
     }
 }
 
@@ -149,14 +219,14 @@ impl From<&[u8]> for ByteKey {
 impl From<Vec<u8>> for ByteKey {
     #[inline]
     fn from(v: Vec<u8>) -> Self {
-        Self(CompactBytes::from(v))
+        Self(storage::from_vec(v))
     }
 }
 
 impl From<ByteKey> for Vec<u8> {
     #[inline]
     fn from(k: ByteKey) -> Self {
-        k.0.into_vec()
+        storage::into_vec(k.0)
     }
 }
 
@@ -214,5 +284,34 @@ mod test {
         a.sort();
         b.sort();
         assert!(a.iter().zip(&b).all(|(x, y)| x.as_slice() == y.as_slice()));
+    }
+
+    /// Endian-agnostic round trip over every length through the inline/heap
+    /// boundary and past 255, so heap capacities with every low-byte value are
+    /// covered (the case compact_bytes 0.2.1 mis-tags on big-endian).
+    #[test]
+    fn round_trip_all_lengths() {
+        use std::hash::BuildHasher;
+        let bh = hashbrown::DefaultHashBuilder::default();
+        let mut prev: Option<Vec<u8>> = None;
+        for len in 0..=600usize {
+            let v: Vec<u8> = (0..len).map(|i| (i * 31 + len) as u8).collect();
+            let k = ByteKey::from_slice(&v);
+            assert_eq!(k.as_slice(), v.as_slice(), "from_slice len {len}");
+            assert_eq!(&*k, v.as_slice());
+            assert_eq!(bh.hash_one(&k), bh.hash_one(v.as_slice()));
+            assert_eq!(bh.hash_one(&k), bh.hash_one(ByteKeyRef::new(&v)));
+            let kc = k.clone();
+            assert_eq!(kc, k);
+            let kv = ByteKey::from(v.clone());
+            assert_eq!(kv.as_slice(), v.as_slice(), "From<Vec> len {len}");
+            assert_eq!(kv, k);
+            assert_eq!(Vec::<u8>::from(kv), v, "into Vec len {len}");
+            if let Some(p) = &prev {
+                let pk = ByteKey::from_slice(p);
+                assert_eq!(pk.cmp(&k), p.cmp(&v), "Ord len {len}");
+            }
+            prev = Some(v);
+        }
     }
 }
